@@ -1,0 +1,2874 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "族谱管理系统 API",
+    "description": "基于数据库实验的族谱管理系统后端接口文档",
+    "version": "1.0.0"
+  },
+  "tags": [
+    {
+      "name": "用户认证"
+    },
+    {
+      "name": "族谱管理"
+    },
+    {
+      "name": "成员管理"
+    },
+    {
+      "name": "血缘查询"
+    },
+    {
+      "name": "族谱共享"
+    },
+    {
+      "name": "Dashboard"
+    },
+    {
+      "name": "统计分析"
+    }
+  ],
+  "paths": {
+    "/api/auth/logout": {
+      "post": {
+        "summary": "用户注销",
+        "deprecated": false,
+        "description": "用户注销账户，注销后无法再次登录",
+        "tags": [
+          "用户认证"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "example": "token_1717958400_1_12345"
+                  }
+                }
+              },
+              "examples": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "注销成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "注销成功"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "message": {
+                          "type": "string",
+                          "example": "账户已成功注销，无法再次登录"
+                        },
+                        "user_id": {
+                          "type": "integer",
+                          "example": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {}
+          },
+          "401": {
+            "description": "无效的token或已过期",
+            "headers": {}
+          },
+          "403": {
+            "description": "账户状态不允许操作",
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "summary": "用户注册",
+        "deprecated": false,
+        "description": "新用户注册接口",
+        "tags": [
+          "用户认证"
+        ],
+        "parameters": [
+          {
+            "name": "Content-Type",
+            "in": "header",
+            "description": "",
+            "required": true,
+            "example": "application/json",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "注册成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "400": {
+            "description": "注册失败",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "summary": "用户登录",
+        "deprecated": false,
+        "description": "用户登录接口",
+        "tags": [
+          "用户认证"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "登录成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            },
+            "headers": {}
+          },
+          "401": {
+            "description": "用户名或密码错误",
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/genealogy": {
+      "get": {
+        "summary": "获取族谱列表",
+        "deprecated": false,
+        "description": "获取用户创建和受邀请的族谱列表（包括共享的族谱）",
+        "tags": ["族谱管理"],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "获取成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "获取成功"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "genealogies": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "genealogy_id": {
+                                "type": "integer",
+                                "example": 1
+                              },
+                              "name": {
+                                "type": "string",
+                                "example": "张氏族谱"
+                              },
+                              "surname": {
+                                "type": "string",
+                                "example": "张"
+                              },
+                              "founder_name": {
+                                "type": "string",
+                                "example": "张氏先祖"
+                              },
+                              "create_time": {
+                                "type": "string",
+                                "example": "2024-01-01 10:00:00"
+                              },
+                              "description": {
+                                "type": "string",
+                                "example": "张氏族谱，记载张氏家族历史"
+                              },
+                              "user_id": {
+                                "type": "integer",
+                                "example": 1
+                              },
+                              "role": {
+                                "type": "string",
+                                "description": "用户在该族谱中的角色：owner（创建者）、edit（编辑者）、view（查看者）",
+                                "example": "owner"
+                              }
+                            }
+                          }
+                        },
+                        "total": {
+                          "type": "integer",
+                          "example": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      },
+      "post": {
+        "summary": "创建族谱",
+        "deprecated": false,
+        "description": "创建一个新的族谱",
+        "tags": [
+          "族谱管理"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGenealogyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "创建成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/genealogy/{genealogy_id}": {
+      "get": {
+        "summary": "获取族谱详情",
+        "deprecated": false,
+        "description": "获取指定族谱的详细信息，如果用户是创建者或受邀请用户",
+        "tags": ["族谱管理"],
+        "parameters": [
+          {
+            "name": "genealogy_id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "example": "",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "获取成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "获取成功"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "genealogy_id": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "name": {
+                          "type": "string",
+                          "example": "张氏族谱"
+                        },
+                        "surname": {
+                          "type": "string",
+                          "example": "张"
+                        },
+                        "founder_name": {
+                          "type": "string",
+                          "example": "张氏先祖"
+                        },
+                        "create_time": {
+                          "type": "string",
+                          "example": "2024-01-01 10:00:00"
+                        },
+                        "description": {
+                          "type": "string",
+                          "example": "张氏族谱，记载张氏家族历史"
+                        },
+                        "user_id": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "role": {
+                          "type": "string",
+                          "description": "用户在该族谱中的角色：owner（创建者）、edit（编辑者）、view（查看者）",
+                          "example": "owner"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      },
+      "put": {
+        "summary": "更新族谱信息",
+        "deprecated": false,
+        "description": "更新指定族谱的信息",
+        "tags": [
+          "族谱管理"
+        ],
+        "parameters": [
+          {
+            "name": "genealogy_id",
+            "in": "path",
+            "description": "族谱ID",
+            "required": true,
+            "example": 0,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateGenealogyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "更新成功",
+            "headers": {}
+          }
+        },
+        "security": []
+      },
+      "delete": {
+        "summary": "删除族谱",
+        "deprecated": false,
+        "description": "删除指定的族谱",
+        "tags": [
+          "族谱管理"
+        ],
+        "parameters": [
+          {
+            "name": "genealogy_id",
+            "in": "path",
+            "description": "族谱ID",
+            "required": true,
+            "example": 0,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功",
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/genealogy/{genealogy_id}/member": {
+      "post": {
+        "summary": "添加成员",
+        "deprecated": false,
+        "description": "在指定族谱中添加新成员（需要创建者或edit权限的共享用户），支持指定父母和配偶",
+        "tags": [
+          "成员管理"
+        ],
+        "parameters": [
+          {
+            "name": "genealogy_id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "example": 0,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "gender"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "张三"
+                  },
+                  "gender": {
+                    "type": "string",
+                    "enum": [
+                      "male",
+                      "female"
+                    ],
+                    "example": "male"
+                  },
+                  "birth_date": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "1990-01-01"
+                  },
+                  "death_date": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2020-01-01"
+                  },
+                  "biography": {
+                    "type": "string",
+                    "example": "生平简介"
+                  },
+                  "father_id": {
+                    "type": "integer",
+                    "example": 1
+                  },
+                  "mother_id": {
+                    "type": "integer",
+                    "example": 2
+                  },
+                  "spouse_id": {
+                    "type": "integer",
+                    "description": "配偶ID（必须为异性且未婚）",
+                    "example": 3
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "添加成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "example": 201
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "添加成功"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "member_id": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "name": {
+                          "type": "string",
+                          "example": "张三"
+                        },
+                        "gender": {
+                          "type": "string",
+                          "example": "male"
+                        },
+                        "spouse_id": {
+                          "type": "integer",
+                          "example": 3
+                        },
+                        "spouse": {
+                          "type": "object",
+                          "description": "配偶信息（如果指定了配偶）",
+                          "properties": {
+                            "member_id": {
+                              "type": "integer",
+                              "example": 3
+                            },
+                            "name": {
+                              "type": "string",
+                              "example": "李四"
+                            },
+                            "gender": {
+                              "type": "string",
+                              "example": "female"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      },
+      "get": {
+        "summary": "获取族谱成员列表",
+        "deprecated": false,
+        "description": "获取指定族谱的所有成员",
+        "tags": [
+          "成员管理"
+        ],
+        "parameters": [
+          {
+            "name": "genealogy_id",
+            "in": "path",
+            "description": "族谱ID",
+            "required": true,
+            "example": 0,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "页码",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "description": "每页数量",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功获取成员列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberListResponse"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/member/{member_id}": {
+      "put": {
+        "summary": "更新成员信息",
+        "deprecated": false,
+        "description": "更新指定成员的信息，包括配偶关系",
+        "tags": [
+          "成员管理"
+        ],
+        "parameters": [
+          {
+            "name": "member_id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "example": 0,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "张三（更新）"
+                  },
+                  "gender": {
+                    "type": "string",
+                    "enum": [
+                      "male",
+                      "female"
+                    ],
+                    "description": "注意：已有配偶的成员不能更改性别"
+                  },
+                  "birth_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "death_date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "biography": {
+                    "type": "string"
+                  },
+                  "father_id": {
+                    "type": "integer"
+                  },
+                  "mother_id": {
+                    "type": "integer"
+                  },
+                  "spouse_id": {
+                    "type": "integer",
+                    "description": "0表示解除婚姻，大于0表示建立婚姻关系（必须为异性）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新成功",
+            "headers": {}
+          }
+        },
+        "security": []
+      },
+      "delete": {
+        "summary": "删除成员",
+        "deprecated": false,
+        "description": "删除指定成员，会自动解除其婚姻关系",
+        "tags": [
+          "成员管理"
+        ],
+        "parameters": [
+          {
+            "name": "member_id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "example": 0,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功",
+            "headers": {}
+          }
+        },
+        "security": []
+      },
+      "get": {
+        "summary": "获取成员详情",
+        "deprecated": false,
+        "description": "获取指定成员的详细信息",
+        "tags": [
+          "成员管理"
+        ],
+        "parameters": [
+          {
+            "name": "member_id",
+            "in": "path",
+            "description": "成员ID",
+            "required": true,
+            "example": 0,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功获取成员详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberDetailResponse"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/member/search": {
+      "get": {
+        "summary": "搜索成员",
+        "deprecated": false,
+        "description": "根据姓名搜索成员",
+        "tags": [
+          "成员管理"
+        ],
+        "parameters": [
+          {
+            "name": "keyword",
+            "in": "query",
+            "description": "搜索关键词",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "页码",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "description": "每页数量",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "搜索成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberSearchResponse"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/member/relationship": {
+      "get": {
+        "summary": "查询亲缘关系",
+        "deprecated": false,
+        "description": "查询两个成员之间的亲缘关系，包括血缘关系和婚姻关系",
+        "tags": [
+          "血缘查询"
+        ],
+        "parameters": [
+          {
+            "name": "member_id1",
+            "in": "query",
+            "description": "第一个成员ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "member_id2",
+            "in": "query",
+            "description": "第二个成员ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功获取亲缘关系",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "查询成功"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "member1_id": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "member2_id": {
+                          "type": "integer",
+                          "example": 2
+                        },
+                        "has_relationship": {
+                          "type": "boolean",
+                          "example": true
+                        },
+                        "common_relative_id": {
+                          "type": "integer",
+                          "example": 3
+                        },
+                        "generation_gap1": {
+                          "type": "integer",
+                          "example": 2
+                        },
+                        "generation_gap2": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "relationship_type": {
+                          "type": "string",
+                          "enum": [
+                            "blood",
+                            "spouse",
+                            "family"
+                          ],
+                          "description": "关系类型：blood(血缘)、spouse(配偶)、family(家族)"
+                        },
+                        "common_relative": {
+                          "type": "object",
+                          "description": "公共亲属信息",
+                          "properties": {}
+                        },
+                        "path1": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {}
+                          }
+                        },
+                        "path2": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {}
+                          }
+                        },
+                        "spouse1": {
+                          "type": "object",
+                          "description": "成员1的配偶信息（当关系为spouse时）",
+                          "properties": {}
+                        },
+                        "spouse2": {
+                          "type": "object",
+                          "description": "成员2的配偶信息（当关系为spouse时）",
+                          "properties": {}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/member/{member_id}/ancestors": {
+      "get": {
+        "summary": "查询祖先",
+        "deprecated": false,
+        "description": "查询指定成员的所有祖先（实验要求：递归查询）",
+        "tags": [
+          "血缘查询"
+        ],
+        "parameters": [
+          {
+            "name": "member_id",
+            "in": "path",
+            "description": "成员ID",
+            "required": true,
+            "example": 0,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "max_depth",
+            "in": "query",
+            "description": "最大查询深度",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 1,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功获取祖先列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AncestorsResponse"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/member/{member_id}/family-tree": {
+      "get": {
+        "summary": "获取家族树",
+        "deprecated": false,
+        "description": "获取指定成员的家族树（包含祖先、后代和配偶）",
+        "tags": [
+          "血缘查询"
+        ],
+        "parameters": [
+          {
+            "name": "member_id",
+            "in": "path",
+            "description": "成员ID",
+            "required": true,
+            "example": 0,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "depth",
+            "in": "query",
+            "description": "树深度",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 3,
+              "minimum": 1,
+              "maximum": 5
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功获取家族树",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "获取成功"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "root": {
+                          "type": "object",
+                          "properties": {
+                            "member_id": {
+                              "type": "integer"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "spouse": {
+                              "type": "object",
+                              "description": "配偶信息（如果有）",
+                              "properties": {}
+                            }
+                          }
+                        },
+                        "depth": {
+                          "type": "integer"
+                        },
+                        "ancestors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {}
+                          }
+                        },
+                        "descendants": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {}
+                          }
+                        },
+                        "total_ancestors": {
+                          "type": "integer"
+                        },
+                        "total_descendants": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/member/{member_id}/descendants": {
+      "get": {
+        "summary": "查询后代",
+        "deprecated": false,
+        "description": "查询指定成员的所有后代（实验要求：递归查询）",
+        "tags": [
+          "血缘查询"
+        ],
+        "parameters": [
+          {
+            "name": "member_id",
+            "in": "path",
+            "description": "成员ID",
+            "required": true,
+            "example": 0,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "max_depth",
+            "in": "query",
+            "description": "最大查询深度",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 1,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功获取后代列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DescendantsResponse"
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/genealogy/{genealogy_id}/share": {
+      "post": {
+        "summary": "添加共享用户",
+        "deprecated": false,
+        "description": "族谱创建者添加共享用户，允许其他用户编辑或查看该族谱",
+        "tags": [
+          "族谱共享"
+        ],
+        "parameters": [
+          {
+            "name": "genealogy_id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "example": 1,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "user_id"
+                ],
+                "properties": {
+                  "user_id": {
+                    "type": "integer",
+                    "description": "要共享的用户ID",
+                    "example": 2
+                  },
+                  "permission": {
+                    "type": "string",
+                    "description": "权限类型：edit（编辑）或 view（查看）",
+                    "enum": [
+                      "edit",
+                      "view"
+                    ],
+                    "default": "edit",
+                    "example": "edit"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "添加共享成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "example": 201
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "添加共享成功"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "user_id": {
+                          "type": "integer",
+                          "example": 2
+                        },
+                        "username": {
+                          "type": "string",
+                          "example": "invited_user"
+                        },
+                        "permission": {
+                          "type": "string",
+                          "example": "edit"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {}
+          },
+          "400": {
+            "description": "请求参数错误",
+            "headers": {}
+          },
+          "401": {
+            "description": "未提供认证token或token无效",
+            "headers": {}
+          },
+          "403": {
+            "description": "只有族谱创建者可以添加共享用户",
+            "headers": {}
+          },
+          "404": {
+            "description": "目标用户不存在或已注销",
+            "headers": {}
+          },
+          "500": {
+            "description": "服务器内部错误",
+            "headers": {}
+          }
+        },
+        "security": []
+      },
+      "get": {
+        "summary": "获取共享用户列表",
+        "deprecated": false,
+        "description": "获取当前族谱的所有共享用户列表",
+        "tags": [
+          "族谱共享"
+        ],
+        "parameters": [
+          {
+            "name": "genealogy_id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "example": 1,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "获取成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "获取成功"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "shares": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "share_id": {
+                                "type": "integer",
+                                "example": 1
+                              },
+                              "user_id": {
+                                "type": "integer",
+                                "example": 2
+                              },
+                              "username": {
+                                "type": "string",
+                                "example": "invited_user"
+                              },
+                              "permission": {
+                                "type": "string",
+                                "example": "edit"
+                              },
+                              "created_at": {
+                                "type": "string",
+                                "example": "2024-01-01 10:00:00"
+                              }
+                            }
+                          }
+                        },
+                        "total": {
+                          "type": "integer",
+                          "example": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {}
+          },
+          "401": {
+            "description": "未提供认证token或token无效",
+            "headers": {}
+          },
+          "403": {
+            "description": "只有族谱创建者可以查看共享列表",
+            "headers": {}
+          },
+          "500": {
+            "description": "服务器内部错误",
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/genealogy/{genealogy_id}/share/{user_id}": {
+      "put": {
+        "summary": "更新共享权限",
+        "deprecated": false,
+        "description": "更新指定用户的共享权限",
+        "tags": [
+          "族谱共享"
+        ],
+        "parameters": [
+          {
+            "name": "genealogy_id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "example": 1,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "example": 2,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "permission"
+                ],
+                "properties": {
+                  "permission": {
+                    "type": "string",
+                    "description": "新的权限类型：edit（编辑）或 view（查看）",
+                    "enum": [
+                      "edit",
+                      "view"
+                    ],
+                    "example": "edit"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "更新权限成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "更新权限成功"
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {}
+          },
+          "400": {
+            "description": "请求参数错误",
+            "headers": {}
+          },
+          "401": {
+            "description": "未提供认证token或token无效",
+            "headers": {}
+          },
+          "403": {
+            "description": "只有族谱创建者可以更新共享权限",
+            "headers": {}
+          },
+          "500": {
+            "description": "服务器内部错误",
+            "headers": {}
+          }
+        },
+        "security": []
+      },
+      "delete": {
+        "summary": "删除共享用户",
+        "deprecated": false,
+        "description": "从共享列表中移除指定用户",
+        "tags": [
+          "族谱共享"
+        ],
+        "parameters": [
+          {
+            "name": "genealogy_id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "example": 1,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "example": 2,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除共享成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "删除共享成功"
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {}
+          },
+          "401": {
+            "description": "未提供认证token或token无效",
+            "headers": {}
+          },
+          "403": {
+            "description": "只有族谱创建者可以删除共享用户",
+            "headers": {}
+          },
+          "500": {
+            "description": "服务器内部错误",
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/genealogy/{genealogy_id}/stats": {
+      "get": {
+        "summary": "获取族谱统计信息",
+        "deprecated": false,
+        "description": "获取指定族谱的统计信息，包括总人数和男女比例",
+        "tags": [
+          "Dashboard"
+        ],
+        "parameters": [
+          {
+            "name": "genealogy_id",
+            "in": "path",
+            "description": "族谱ID",
+            "required": true,
+            "example": 1,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "获取成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "获取成功"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "genealogy_id": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "total_members": {
+                          "type": "integer",
+                          "example": 100
+                        },
+                        "gender_stats": {
+                          "type": "object",
+                          "properties": {
+                            "male": {
+                              "type": "integer",
+                              "example": 50
+                            },
+                            "female": {
+                              "type": "integer",
+                              "example": 50
+                            },
+                            "male_percentage": {
+                              "type": "number",
+                              "format": "float",
+                              "example": 50
+                            },
+                            "female_percentage": {
+                              "type": "number",
+                              "format": "float",
+                              "example": 50
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {}
+          },
+          "401": {
+            "description": "未提供认证token或token无效",
+            "headers": {}
+          },
+          "403": {
+            "description": "无权查看此族谱",
+            "headers": {}
+          },
+          "500": {
+            "description": "服务器内部错误",
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/genealogy/{genealogy_id}/sql-demo": {
+      "get": {
+        "summary": "SQL核心功能演示",
+        "deprecated": false,
+        "description": "演示基本查询和递归查询功能",
+        "tags": [
+          "统计分析"
+        ],
+        "parameters": [
+          {
+            "name": "genealogy_id",
+            "in": "path",
+            "description": "族谱ID",
+            "required": true,
+            "example": 0,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "member_id",
+            "in": "query",
+            "description": "成员ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "获取成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "获取成功"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "genealogy_id": {
+                          "type": "integer"
+                        },
+                        "member_id": {
+                          "type": "integer"
+                        },
+                        "member_name": {
+                          "type": "string"
+                        },
+                        "member_gender": {
+                          "type": "string"
+                        },
+                        "member_birth_date": {
+                          "type": "string"
+                        },
+                        "basic_query": {
+                          "type": "object",
+                          "properties": {
+                            "spouse": {
+                              "type": "object",
+                              "properties": {
+                                "member_id": {
+                                  "type": "integer"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "gender": {
+                                  "type": "string"
+                                },
+                                "birth_date": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "children": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "member_id": {
+                                    "type": "integer"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "gender": {
+                                    "type": "string"
+                                  },
+                                  "birth_date": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            },
+                            "children_count": {
+                              "type": "integer"
+                            }
+                          }
+                        },
+                        "ancestors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "member_id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "gender": {
+                                "type": "string"
+                              },
+                              "birth_date": {
+                                "type": "string"
+                              },
+                              "generation": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        },
+                        "ancestors_count": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/genealogy/{genealogy_id}/stats/longest-lived-generation": {
+      "get": {
+        "summary": "平均寿命最长的一代",
+        "deprecated": false,
+        "description": "统计某个家族中平均寿命最长的一代人（辈分）",
+        "tags": [
+          "统计分析"
+        ],
+        "parameters": [
+          {
+            "name": "genealogy_id",
+            "in": "path",
+            "description": "族谱ID",
+            "required": true,
+            "example": 0,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "获取成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "获取成功"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "genealogy_id": {
+                          "type": "integer"
+                        },
+                        "generation": {
+                          "type": "integer",
+                          "description": "平均寿命最长的代数"
+                        },
+                        "avg_lifespan": {
+                          "type": "number",
+                          "description": "平均寿命"
+                        },
+                        "member_count": {
+                          "type": "integer",
+                          "description": "该代成员数量"
+                        },
+                        "members": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "member_id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "gender": {
+                                "type": "string"
+                              },
+                              "birth_date": {
+                                "type": "string"
+                              },
+                              "death_date": {
+                                "type": "string"
+                              },
+                              "lifespan": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/genealogy/{genealogy_id}/stats/unmarried-men-over-50": {
+      "get": {
+        "summary": "年龄超过50岁且无配偶的男性",
+        "deprecated": false,
+        "description": "查询所有年龄超过50岁、且没有配偶的男性成员",
+        "tags": [
+          "统计分析"
+        ],
+        "parameters": [
+          {
+            "name": "genealogy_id",
+            "in": "path",
+            "description": "族谱ID",
+            "required": true,
+            "example": 0,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "获取成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "获取成功"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "genealogy_id": {
+                          "type": "integer"
+                        },
+                        "query_condition": {
+                          "type": "string"
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "members": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "member_id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "birth_date": {
+                                "type": "string"
+                              },
+                              "age": {
+                                "type": "integer"
+                              },
+                              "spouse_id": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/genealogy/{genealogy_id}/stats/born-before-average": {
+      "get": {
+        "summary": "早于平均出生年份的成员",
+        "deprecated": false,
+        "description": "找出家族中'出生年份'早于该辈分（代）平均出生年份的所有成员",
+        "tags": [
+          "统计分析"
+        ],
+        "parameters": [
+          {
+            "name": "genealogy_id",
+            "in": "path",
+            "description": "族谱ID",
+            "required": true,
+            "example": 0,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "获取成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "获取成功"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "genealogy_id": {
+                          "type": "integer"
+                        },
+                        "query_condition": {
+                          "type": "string"
+                        },
+                        "total": {
+                          "type": "integer"
+                        },
+                        "members": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "member_id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "birth_date": {
+                                "type": "string"
+                              },
+                              "birth_year": {
+                                "type": "integer"
+                              },
+                              "generation": {
+                                "type": "integer"
+                              },
+                              "avg_birth_year": {
+                                "type": "number"
+                              },
+                              "years_earlier": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "headers": {}
+          }
+        },
+        "security": []
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "GenealogyShare": {
+        "$comment": "JSON Schema for GenealogyShare table",
+        "$id": "GenealogyShare",
+        "title": "GenealogyShare",
+        "type": "object",
+        "required": [
+          "share_id",
+          "genealogy_id",
+          "user_id"
+        ],
+        "properties": {
+          "share_id": {
+            "$comment": "primary key",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "genealogy_id": {
+            "type": "integer",
+            "minimum": -2147483648,
+            "maximum": 2147483647
+          },
+          "user_id": {
+            "type": "integer",
+            "minimum": -2147483648,
+            "maximum": 2147483647
+          },
+          "permission": {
+            "type": "string",
+            "enum": [
+              "view",
+              "edit"
+            ],
+            "default": "edit",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "default": "CURRENT_TIMESTAMP",
+            "nullable": true
+          }
+        }
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 50,
+            "description": "用户名",
+            "example": "zhangsan"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 50,
+            "description": "密码",
+            "example": "123456"
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "username": {
+            "type": "string",
+            "example": "zhangsan"
+          },
+          "password": {
+            "type": "string",
+            "example": "123456"
+          }
+        }
+      },
+      "CreateGenealogyRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "surname"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "族谱名称",
+            "example": "张氏族谱"
+          },
+          "surname": {
+            "type": "string",
+            "description": "姓氏",
+            "example": "张"
+          },
+          "founder_name": {
+            "type": "string",
+            "description": "始祖姓名",
+            "example": "张氏先祖"
+          },
+          "description": {
+            "type": "string",
+            "description": "族谱简介",
+            "example": "张氏族谱，记载张氏家族历史"
+          }
+        }
+      },
+      "UpdateGenealogyRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "张氏族谱（修订版）"
+          },
+          "surname": {
+            "type": "string",
+            "example": "张"
+          },
+          "founder_name": {
+            "type": "string",
+            "example": "张氏先祖"
+          },
+          "description": {
+            "type": "string",
+            "example": "更新后的族谱简介"
+          }
+        }
+      },
+      "CreateMemberRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "gender"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "姓名",
+            "example": "张三"
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "male",
+              "female"
+            ],
+            "description": "性别",
+            "example": "male"
+          },
+          "birth_date": {
+            "type": "string",
+            "format": "date",
+            "description": "出生日期",
+            "example": "1980-01-01"
+          },
+          "death_date": {
+            "type": "string",
+            "format": "date",
+            "description": "逝世日期",
+            "example": "2020-12-31"
+          },
+          "biography": {
+            "type": "string",
+            "description": "生平简介",
+            "example": "生平简介"
+          },
+          "father_id": {
+            "type": "integer",
+            "description": "父亲ID",
+            "example": 2
+          },
+          "mother_id": {
+            "type": "integer",
+            "description": "母亲ID",
+            "example": 3
+          }
+        }
+      },
+      "UpdateMemberRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "张三丰"
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "male",
+              "female"
+            ],
+            "example": "male"
+          },
+          "birth_date": {
+            "type": "string",
+            "format": "date",
+            "example": "1980-01-01"
+          },
+          "death_date": {
+            "type": "string",
+            "format": "date",
+            "example": "2020-12-31"
+          },
+          "biography": {
+            "type": "string",
+            "example": "更新后的生平简介"
+          },
+          "father_id": {
+            "type": "integer",
+            "example": 2
+          },
+          "mother_id": {
+            "type": "integer",
+            "example": 3
+          }
+        }
+      },
+      "ApiResponse": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "example": 200
+          },
+          "message": {
+            "type": "string",
+            "example": "操作成功"
+          },
+          "data": {
+            "type": "object",
+            "properties": {},
+            "nullable": true
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "example": 400
+          },
+          "message": {
+            "type": "string",
+            "example": "操作失败"
+          },
+          "error": {
+            "type": "string",
+            "example": "详细错误信息"
+          }
+        }
+      },
+      "LoginResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "description": "JWT令牌",
+                    "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  },
+                  "user": {
+                    "type": "object",
+                    "properties": {
+                      "user_id": {
+                        "type": "integer",
+                        "example": 1
+                      },
+                      "username": {
+                        "type": "string",
+                        "example": "zhangsan"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "GenealogyListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "genealogies": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Genealogy"
+                    }
+                  },
+                  "total": {
+                    "type": "integer",
+                    "example": 5
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "GenealogyDetailResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/Genealogy"
+              }
+            }
+          }
+        ]
+      },
+      "MemberListResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "members": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Member"
+                    }
+                  },
+                  "total": {
+                    "type": "integer",
+                    "example": 100
+                  },
+                  "page": {
+                    "type": "integer",
+                    "example": 1
+                  },
+                  "page_size": {
+                    "type": "integer",
+                    "example": 20
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "MemberDetailResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/Member"
+              }
+            }
+          }
+        ]
+      },
+      "MemberSearchResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "results": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Member"
+                    }
+                  },
+                  "total": {
+                    "type": "integer",
+                    "example": 10
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "AncestorsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "target_member": {
+                    "$ref": "#/components/schemas/Member"
+                  },
+                  "ancestors": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Ancestor"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "DescendantsResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "target_member": {
+                    "$ref": "#/components/schemas/Member"
+                  },
+                  "descendants": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Descendant"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "RelationshipResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "has_relationship": {
+                    "type": "boolean",
+                    "example": true
+                  },
+                  "relationship": {
+                    "type": "string",
+                    "example": "父子"
+                  },
+                  "path": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/PathNode"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "FamilyTreeResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiResponse"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/FamilyTreeNode"
+              }
+            }
+          }
+        ]
+      },
+      "User": {
+        "$comment": "JSON Schema for User table",
+        "$id": "User",
+        "title": "User",
+        "type": "object",
+        "required": [
+          "user_id",
+          "username",
+          "password"
+        ],
+        "properties": {
+          "user_id": {
+            "$comment": "primary key",
+            "description": "用户ID",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "username": {
+            "description": "用户名",
+            "type": "string",
+            "maxLength": 50
+          },
+          "password": {
+            "description": "密码",
+            "type": "string",
+            "maxLength": 255
+          },
+          "status": {
+            "description": "用户状态",
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "suspended"
+            ],
+            "default": "active",
+            "nullable": true
+          },
+          "created_at": {
+            "description": "创建时间",
+            "type": "string",
+            "default": "CURRENT_TIMESTAMP",
+            "nullable": true
+          }
+        }
+      },
+      "Genealogy": {
+        "properties": {
+          "genealogy_id": {
+            "description": "族谱ID",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "name": {
+            "description": "族谱名称",
+            "type": "string",
+            "maxLength": 100
+          },
+          "surname": {
+            "description": "姓氏",
+            "type": "string",
+            "maxLength": 50
+          },
+          "founder_name": {
+            "description": "创始人姓名",
+            "type": "string",
+            "maxLength": 50,
+            "nullable": true
+          },
+          "create_time": {
+            "description": "创建时间",
+            "default": "CURRENT_TIMESTAMP",
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "description": {
+            "description": "族谱简介",
+            "type": "string",
+            "maxLength": 65535,
+            "nullable": true
+          },
+          "user_id": {
+            "description": "所属用户ID",
+            "type": "integer",
+            "minimum": -2147483648,
+            "maximum": 2147483647
+          }
+        },
+        "type": "object",
+        "required": [
+          "genealogy_id",
+          "name",
+          "surname",
+          "user_id"
+        ]
+      },
+      "Member": {
+        "$comment": "JSON Schema for Member table",
+        "$id": "Member",
+        "title": "Member",
+        "type": "object",
+        "required": [
+          "member_id",
+          "genealogy_id",
+          "name",
+          "gender"
+        ],
+        "properties": {
+          "member_id": {
+            "$comment": "primary key",
+            "description": "成员ID",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "genealogy_id": {
+            "description": "所属族谱ID",
+            "type": "integer",
+            "minimum": -2147483648,
+            "maximum": 2147483647
+          },
+          "name": {
+            "description": "姓名",
+            "type": "string",
+            "maxLength": 50
+          },
+          "gender": {
+            "description": "性别(male/female)",
+            "type": "string",
+            "enum": [
+              "male",
+              "female"
+            ]
+          },
+          "birth_date": {
+            "description": "出生日期",
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "death_date": {
+            "description": "逝世日期",
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "biography": {
+            "description": "生平简介",
+            "type": "string",
+            "maxLength": 65535,
+            "nullable": true
+          },
+          "father_id": {
+            "description": "父亲ID",
+            "type": "integer",
+            "minimum": -2147483648,
+            "maximum": 2147483647,
+            "default": null,
+            "nullable": true
+          },
+          "mother_id": {
+            "description": "母亲ID",
+            "type": "integer",
+            "minimum": -2147483648,
+            "maximum": 2147483647,
+            "default": null,
+            "nullable": true
+          },
+          "spouse_id": {
+            "description": "配偶ID（当前配偶）",
+            "type": "integer",
+            "minimum": -2147483648,
+            "maximum": 2147483647,
+            "default": null,
+            "nullable": true
+          }
+        }
+      },
+      "Ancestor": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Member"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "generation": {
+                "type": "integer",
+                "example": 1
+              },
+              "relation": {
+                "type": "string",
+                "example": "父亲"
+              }
+            }
+          }
+        ]
+      },
+      "Descendant": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Member"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "generation": {
+                "type": "integer",
+                "example": 1
+              },
+              "relation": {
+                "type": "string",
+                "example": "儿子"
+              }
+            }
+          }
+        ]
+      },
+      "PathNode": {
+        "type": "object",
+        "properties": {
+          "member_id": {
+            "type": "integer",
+            "example": 1
+          },
+          "name": {
+            "type": "string",
+            "example": "张三"
+          },
+          "relation": {
+            "type": "string",
+            "example": "本人"
+          }
+        }
+      },
+      "FamilyTreeNode": {
+        "type": "object",
+        "properties": {
+          "member": {
+            "$ref": "#/components/schemas/Member"
+          },
+          "father": {
+            "$ref": "#/components/schemas/FamilyTreeNode"
+          },
+          "mother": {
+            "$ref": "#/components/schemas/FamilyTreeNode"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FamilyTreeNode"
+            }
+          }
+        }
+      },
+      "Marriage": {
+        "$comment": "JSON Schema for Marriage table",
+        "$id": "Marriage",
+        "title": "Marriage",
+        "type": "object",
+        "required": [
+          "marriage_id",
+          "husband_id",
+          "wife_id"
+        ],
+        "properties": {
+          "marriage_id": {
+            "$comment": "primary key",
+            "description": "婚姻ID",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "husband_id": {
+            "description": "丈夫ID",
+            "type": "integer",
+            "minimum": -2147483648,
+            "maximum": 2147483647
+          },
+          "wife_id": {
+            "description": "妻子ID",
+            "type": "integer",
+            "minimum": -2147483648,
+            "maximum": 2147483647
+          },
+          "wedding_date": {
+            "description": "结婚日期",
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "status": {
+            "description": "婚姻状态",
+            "type": "string",
+            "enum": [
+              "active",
+              "dissolved"
+            ],
+            "default": "active",
+            "nullable": true
+          },
+          "created_at": {
+            "description": "创建时间",
+            "type": "string",
+            "default": "CURRENT_TIMESTAMP",
+            "nullable": true
+          }
+        }
+      }
+    },
+    "responses": {},
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "servers": [],
+  "security": []
+}
