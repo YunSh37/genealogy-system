@@ -1,4 +1,88 @@
 /* ============================================================
+   亲缘关系树 缩放/平移 模块
+   为关系树 HTML 结构添加鼠标滚轮缩放 + 拖拽平移
+   ============================================================ */
+const RelZoom = {
+  container: null,
+  tree: null,
+  zoom: 1,
+  panX: 0,
+  panY: 0,
+  dragging: false,
+  startX: 0,
+  startY: 0,
+  startPanX: 0,
+  startPanY: 0,
+  minZoom: 0.2,
+  maxZoom: 3,
+  _wheelHandler: null,
+  _mmHandler: null,
+  _muHandler: null,
+
+  init(containerId) {
+    this.container = document.getElementById(containerId);
+    if (!this.container) return;
+    this.tree = this.container.querySelector('.rel-zoom-tree');
+    if (!this.tree) return;
+    this.zoom = 1; this.panX = 0; this.panY = 0;
+    this._apply();
+
+    // 移除旧的监听器（若重复初始化）
+    if (this._wheelHandler) this.container.removeEventListener('wheel', this._wheelHandler);
+    if (this._mmHandler) window.removeEventListener('mousemove', this._mmHandler);
+    if (this._muHandler) window.removeEventListener('mouseup', this._muHandler);
+
+    this._wheelHandler = (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      const newZoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom * factor));
+      const rect = this.container.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      this.panX = mx - (mx - this.panX) * (newZoom / this.zoom);
+      this.panY = my - (my - this.panY) * (newZoom / this.zoom);
+      this.zoom = newZoom;
+      this._apply();
+    };
+
+    this._mmHandler = (e) => {
+      if (!this.dragging) return;
+      this.panX = this.startPanX + (e.clientX - this.startX);
+      this.panY = this.startPanY + (e.clientY - this.startY);
+      this._apply();
+    };
+
+    this._muHandler = () => { this.dragging = false; if (this.container) this.container.style.cursor = 'grab'; };
+
+    this.container.addEventListener('wheel', this._wheelHandler, { passive: false });
+    window.addEventListener('mousemove', this._mmHandler);
+    window.addEventListener('mouseup', this._muHandler);
+
+    this.container.addEventListener('mousedown', (e) => {
+      this.dragging = true;
+      this.startX = e.clientX; this.startY = e.clientY;
+      this.startPanX = this.panX; this.startPanY = this.panY;
+      this.container.style.cursor = 'grabbing';
+    });
+  },
+
+  _apply() {
+    if (this.tree) this.tree.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`;
+  },
+
+  zoomIn()  { this.zoom = Math.min(this.maxZoom, this.zoom * 1.2); this._apply(); },
+  zoomOut() { this.zoom = Math.max(this.minZoom, this.zoom / 1.2); this._apply(); },
+  fit()     { this.zoom = 1; this.panX = 0; this.panY = 0; this._apply(); },
+
+  destroy() {
+    if (this._wheelHandler && this.container) this.container.removeEventListener('wheel', this._wheelHandler);
+    if (this._mmHandler) window.removeEventListener('mousemove', this._mmHandler);
+    if (this._muHandler) window.removeEventListener('mouseup', this._muHandler);
+    this.container = null; this.tree = null;
+  },
+};
+
+/* ============================================================
    族谱管理系统 - 主应用逻辑
    SPA 路由 / 视图切换 / 数据加载 / 事件处理
    ============================================================ */
@@ -85,6 +169,8 @@ const App = {
         TreeRenderer.ctx.clearRect(0, 0, w, h);
       }
     }
+    // 清理 RelZoom 模块的 window 事件监听器
+    if (typeof RelZoom !== 'undefined') RelZoom.destroy();
   },
 
   // ---- 初始化 ----
@@ -520,7 +606,6 @@ const App = {
   async _loadFamilyTree() {
     if (!this.currentGenealogyId) return;
     const container = document.querySelector('.tree-container');
-    this._setLoading(container, true);
     try {
       const data = await API.getAllMembers(this.currentGenealogyId);
       const members = data.members || [];
@@ -528,16 +613,19 @@ const App = {
         container.innerHTML = '<p style="text-align:center;color:#999;padding:60px">暂无成员数据，请先添加成员</p>';
         return;
       }
-      // 恢复 canvas（loading 可能覆盖了它）
-      container.innerHTML = '<canvas id="tree-canvas"></canvas>';
-      TreeRenderer.init('tree-canvas', (member) => {
-        this._showMemberDetailModal(member.member_id);
+      // 复用已有 canvas，不重复创建（避免事件监听器累积）
+      if (!container.querySelector('#tree-canvas')) {
+        container.innerHTML = '<canvas id="tree-canvas"></canvas>';
+      }
+      // 等一帧确保 canvas 布局完成后再初始化和渲染
+      requestAnimationFrame(() => {
+        TreeRenderer.init('tree-canvas', (member) => {
+          this._showMemberDetailModal(member.member_id);
+        });
+        TreeRenderer.loadMembers(members);
       });
-      TreeRenderer.loadMembers(members);
     } catch (e) {
       container.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:60px">加载族谱树失败：${e.message}</p>`;
-    } finally {
-      this._setLoading(container, false);
     }
   },
 
@@ -566,8 +654,11 @@ const App = {
 
   _renderMemberTable(members) {
     const tbody = document.querySelector('#member-table tbody');
-    // 按 ID 正序排列（如果后端未排序）
-    members = [...members].sort((a, b) => (a.member_id || 0) - (b.member_id || 0));
+    // 后端已排序，若首条ID大于末条则反转（不手动排序，性能友好）
+    members = [...members];
+    if (members.length > 1 && (members[0].member_id || 0) > (members[members.length - 1].member_id || 0)) {
+      members.reverse();
+    }
     tbody.innerHTML = members.map(m => {
       const birth = (m.birth_date || '').substring(0, 10);
       const death = (m.death_date || '').substring(0, 10);
@@ -736,12 +827,12 @@ const App = {
       const target = data.target_member || {};
       const raw = data.ancestors || [];
 
-      if (raw.length === 0) {
+      if (raw.length === 0 && !target.member_id) {
         el.innerHTML = '<p style="text-align:center;color:#999;padding:40px">未查询到祖先信息</p>';
         return;
       }
 
-      // 过滤：同辈分存在两个人时只保留男性
+      // 过滤：同辈分存在两人时只保留男性
       const byGen = {};
       raw.forEach(a => {
         const gen = a.generation ?? 0;
@@ -758,13 +849,18 @@ const App = {
       // 从远到近排序（generation 小的先出现）
       filtered.sort((a, b) => (a.generation || 0) - (b.generation || 0));
 
+      // 把目标人物追加到路径末端
+      if (target.member_id) {
+        filtered.push(target);
+      }
+
       // 计算 S 形布局
       const containerW = el.clientWidth - 32;
       const cardW = 150;
       const cardGap = 16;
       const perRow = Math.max(1, Math.floor((containerW + cardGap) / (cardW + cardGap)));
 
-      // 拆分为行（蛇形：奇数行 LTR，偶数行 RTL）
+      // 拆分为行（蛇形：奇数行 RTL，偶数行 LTR）
       const rows = [];
       for (let i = 0; i < filtered.length; i += perRow) {
         rows.push(filtered.slice(i, i + perRow));
@@ -782,10 +878,14 @@ const App = {
               const arrow = (i < items.length - 1)
                 ? `<div class="anc-snake-arrow">${isRTL ? '←' : '→'}</div>`
                 : '';
+              // 性别决定父亲/母亲标签
+              const relLabel = a.member_id === target.member_id
+                ? '本人'
+                : (a.gender === 'female' ? '母亲' : '父亲');
               return `
                 <div class="anc-snake-card" style="border-top:3px solid ${genColor}">
                   <div class="anc-snake-name">${a.name || ''}</div>
-                  <div class="anc-snake-meta">第${a.generation ?? '?'}代 · ${a.relation || ''}</div>
+                  <div class="anc-snake-meta">第${a.generation ?? '?'}代 · ${relLabel}</div>
                   <div class="anc-snake-life">${(a.birth_date || '').substring(0, 10)}</div>
                 </div>
                 ${arrow}`;
@@ -796,7 +896,7 @@ const App = {
 
       el.innerHTML = `
         <div style="margin-bottom:12px;font-size:13px;color:var(--color-text-light)">
-          <strong>查询目标：</strong>${target.name || ''} (ID:${memberId}) · ${filtered.length} 位祖先 · 深度 ${depth}
+          <strong>查询目标：</strong>${target.name || ''} (ID:${memberId}) · ${filtered.length} 人 · 深度 ${depth}
         </div>
         <div class="anc-snake-container">${rowHtml}</div>`;
     } catch (e) {
@@ -814,65 +914,55 @@ const App = {
     const btn = document.getElementById('btn-query-descendants');
     const el = document.getElementById('desc-result');
     this._btnLoading(btn, true);
+    // 不用 _setLoading（它会保存/恢复 innerHTML 从而破坏 canvas）
     el.innerHTML = '<p style="text-align:center;color:#999;padding:40px"><span class="spinner"></span> 查询中...</p>';
     try {
       const data = await API.getDescendants(memberId, depth);
       const target = data.target_member || {};
       const items = data.descendants || [];
 
-      if (items.length === 0) {
+      if (items.length === 0 && !target.member_id) {
         el.innerHTML = '<p style="text-align:center;color:#999;padding:40px">未查询到后代信息</p>';
+        this._btnLoading(btn, false);
         return;
       }
 
-      // 从平铺数据建立父子映射（以 father_id/mother_id 为 key 做分组）
-      const childrenMap = {};
-      const itemMap = {};
-      items.forEach(d => {
-        itemMap[d.member_id] = d;
-        const pid = d.father_id || d.mother_id || 0;
-        if (!childrenMap[pid]) childrenMap[pid] = [];
-        childrenMap[pid].push(d);
-      });
-
-      // 递归生成树状 HTML
-      const renderSubTree = (pid, genLevel = 0) => {
-        const children = childrenMap[pid] || [];
-        if (children.length === 0) return '';
-        let html = '<ul class="desc-tree-ul">';
-        children.forEach(c => {
-          const name = c.name || '';
-          const gen = c.generation ?? '';
-          const genderMark = c.gender === 'female' ? '♀' : '♂';
-          const color = c.gender === 'female' ? 'var(--color-female)' : 'var(--color-male)';
-          const sub = renderSubTree(c.member_id, genLevel + 1);
-          const hasChildren = sub !== '';
-          html += `<li class="desc-tree-li">
-            <div class="desc-tree-node" style="border-left:3px solid ${color}">
-              <span class="desc-tree-name">${name}</span>
-              <span class="desc-tree-gen">第${gen}代</span>
-              <span class="desc-tree-relation">${c.relation || ''}</span>
-            </div>
-            ${sub}
-          </li>`;
-        });
-        html += '</ul>';
-        return html;
-      };
-
-      // 先用目标成员生成根节点的子树
-      const treeHtml = target.member_id
-        ? renderSubTree(memberId, 0)
-        : renderSubTree(childrenMap[0] ? 0 : -1, 0);
-
       el.innerHTML = `
-        <div style="margin-bottom:12px;font-size:13px;color:var(--color-text-light)">
-          <strong>根节点：</strong>${target.name || ''} (ID:${memberId}) · 共 ${items.length} 位后代 · 查询深度 ${depth}
+        <div style="margin-bottom:8px;font-size:13px;color:var(--color-text-light);display:flex;align-items:center;gap:8px">
+          <strong>根节点：</strong>${target.name || ''} (ID:${memberId}) · 共 ${items.length} 位后代 · 深度 ${depth}
+          <span class="flex-spacer"></span>
+          <button class="btn btn-sm desc-zoom-in">🔍+</button>
+          <button class="btn btn-sm desc-zoom-out">🔍-</button>
+          <button class="btn btn-sm desc-fit">适应</button>
         </div>
-        <div class="desc-tree-container">
-          <div class="desc-tree-root">${target.name || '未知'} · 第${target.generation ?? '?'}代</div>
-          ${treeHtml}
+        <div class="desc-canvas-container">
+          <canvas id="desc-canvas"></canvas>
         </div>`;
+
+      // 创建专属 TreeRenderer 实例
+      if (!this._descRenderer) {
+        this._descRenderer = Object.create(TreeRenderer);
+        this._descRenderer.canvas = null;
+        this._descRenderer.ctx = null;
+        this._descRenderer.nodes = [];
+        this._descRenderer.nodeMap = {};
+        this._descRenderer.roots = [];
+      }
+
+      // 等一帧确保 canvas 在 DOM 中完成布局
+      requestAnimationFrame(() => {
+        this._descRenderer.init('desc-canvas', (member) => {
+          this._showMemberDetailModal(member.member_id);
+        });
+        // 目标成员 + 所有后代一起传入，让树以目标为根
+        const allMembers = target.member_id ? [target, ...items] : items;
+        this._descRenderer.loadMembers(allMembers);
+
+        // 绑定缩放按钮
+        el.querySelector('.desc-zoom-in')?.addEventListener('click', () => this._descRenderer.zoomIn());
+        el.querySelector('.desc-zoom-out')?.addEventListener('click', () => this._descRenderer.zoomOut());
+        el.querySelector('.desc-fit')?.addEventListener('click', () => this._descRenderer.fitView());
+      });
     } catch (e) {
       el.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:40px">查询失败：${e.message}</p>`;
     } finally {
@@ -895,12 +985,9 @@ const App = {
 
       if (!data.has_relationship) {
         el.innerHTML = '<p style="text-align:center;color:#999;padding:40px">两人暂无亲缘关系</p>';
+        this._btnLoading(btn, false);
         return;
       }
-
-      let html = `<div style="margin-bottom:12px;font-size:13px;color:var(--color-text-light)">
-        <strong>关系类型：</strong>${typeMap[data.relationship_type] || data.relationship_type}
-      </div>`;
 
       // 使用新格式（后端已返回 path_to_member1 / path_to_member2）
       const path1 = data.path_to_member1 || data.path1 || [];
@@ -934,7 +1021,7 @@ const App = {
         ? [...fp2].reverse() : fp2;
 
       // 渲染路径节点
-      const renderPath = (path, sideClass) => {
+      const renderPath = (path) => {
         if (path.length === 0) return '';
         return path.map((n, i) => {
           const isLast = i === path.length - 1;
@@ -950,30 +1037,46 @@ const App = {
         }).join('');
       };
 
-      html += `
-        <div class="rel-tree-container">
-          <div class="rel-tree-ancestor">
-            <div class="rel-tree-node rel-tree-root">
-              <div class="rel-tree-name">${ancestor.name || '公共祖先'}</div>
-              <div class="rel-tree-meta">第${ancestor.generation ?? '?'}代 · 公共祖先</div>
-            </div>
-          </div>
-          <div class="rel-tree-split">
-            <div class="rel-tree-split-line"></div>
-          </div>
-          <div class="rel-tree-branches">
-            <div class="rel-tree-branch">
-              <div class="rel-tree-branch-line"></div>
-              ${renderPath(p1Ordered.slice(1), 'path1')}
-            </div>
-            <div class="rel-tree-branch">
-              <div class="rel-tree-branch-line"></div>
-              ${renderPath(p2Ordered.slice(1), 'path2')}
+      el.innerHTML = `
+        <div style="margin-bottom:8px;font-size:13px;color:var(--color-text-light);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <strong>关系类型：</strong>${typeMap[data.relationship_type] || data.relationship_type}
+          <span class="flex-spacer"></span>
+          <button class="btn btn-sm rel-zoom-in">🔍+</button>
+          <button class="btn btn-sm rel-zoom-out">🔍-</button>
+          <button class="btn btn-sm rel-fit">适应</button>
+          <span class="tree-hint">🖱️ 滚轮缩放 | 拖拽平移</span>
+        </div>
+        <div class="rel-canvas-container" id="rel-zoom-wrap">
+          <div class="rel-zoom-tree">
+            <div class="rel-tree-container">
+              <div class="rel-tree-ancestor">
+                <div class="rel-tree-node rel-tree-root">
+                  <div class="rel-tree-name">${ancestor.name || '公共祖先'}</div>
+                  <div class="rel-tree-meta">第${ancestor.generation ?? '?'}代 · 公共祖先</div>
+                </div>
+              </div>
+              <div class="rel-tree-split">
+                <div class="rel-tree-split-line"></div>
+              </div>
+              <div class="rel-tree-branches">
+                <div class="rel-tree-branch">
+                  <div class="rel-tree-branch-line"></div>
+                  ${renderPath(p1Ordered.slice(1))}
+                </div>
+                <div class="rel-tree-branch">
+                  <div class="rel-tree-branch-line"></div>
+                  ${renderPath(p2Ordered.slice(1))}
+                </div>
+              </div>
             </div>
           </div>
         </div>`;
 
-      el.innerHTML = html;
+      // 初始化缩放/平移
+      RelZoom.init('rel-zoom-wrap');
+      el.querySelector('.rel-zoom-in')?.addEventListener('click', () => RelZoom.zoomIn());
+      el.querySelector('.rel-zoom-out')?.addEventListener('click', () => RelZoom.zoomOut());
+      el.querySelector('.rel-fit')?.addEventListener('click', () => RelZoom.fit());
     } catch (e) {
       el.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:40px">查询失败：${e.message}</p>`;
     } finally {

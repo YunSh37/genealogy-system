@@ -21,7 +21,7 @@ const TreeRenderer = {
   viewX: 0,
   viewY: 0,
   zoom: 1.0,
-  minZoom: 0.1,
+  minZoom: 0.02,
   maxZoom: 3.0,
   dragging: false,
   dragStartX: 0,

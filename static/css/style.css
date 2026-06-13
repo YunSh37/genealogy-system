@@ -875,81 +875,55 @@ body {
   user-select: none;
 }
 
-/* ==================== 后代查询树 ==================== */
-.desc-tree-container {
-  padding: 16px 0;
-  overflow-x: auto;
-}
-
-.desc-tree-root {
-  display: inline-block;
-  padding: 8px 14px;
-  background: #FDF8F3;
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius);
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--color-primary);
-  margin-bottom: 8px;
-  box-shadow: var(--shadow-sm);
-}
-
-.desc-tree-ul {
-  list-style: none;
-  padding-left: 24px;
-  margin: 0;
-  border-left: 2px solid var(--color-border);
-}
-
-.desc-tree-li {
-  position: relative;
-  margin: 6px 0;
-  padding-left: 12px;
-}
-
-.desc-tree-li::before {
-  content: '';
-  position: absolute;
-  left: -2px;
-  top: 12px;
-  width: 14px;
-  height: 0;
-  border-top: 2px solid var(--color-border);
-}
-
-.desc-tree-node {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+/* ==================== 后代查询 Canvas 树 ==================== */
+.desc-canvas-container {
   background: #fff;
-  border-radius: 6px;
-  font-size: 13px;
-  box-shadow: var(--shadow-sm);
-  white-space: nowrap;
+  border-radius: var(--radius);
+  overflow: hidden;
+  height: 500px;
+  min-height: 300px;
+  position: relative;
+  border: 1px solid var(--color-border);
 }
 
-.desc-tree-name {
-  font-weight: 600;
+.desc-canvas-container canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
 }
 
-.desc-tree-gen {
-  color: var(--color-text-light);
-  font-size: 11px;
-}
-
-.desc-tree-relation {
-  color: var(--color-primary-light);
-  font-size: 11px;
+.desc-canvas-container canvas:active {
+  cursor: grabbing;
 }
 
 /* ==================== 亲缘关系树 ==================== */
+.rel-canvas-container {
+  background: #fff;
+  border-radius: var(--radius);
+  overflow: hidden;
+  height: 450px;
+  min-height: 250px;
+  position: relative;
+  border: 1px solid var(--color-border);
+  cursor: grab;
+  user-select: none;
+}
+
+.rel-canvas-container:active {
+  cursor: grabbing;
+}
+
+.rel-zoom-tree {
+  transform-origin: 0 0;
+  padding: 16px;
+}
+
 .rel-tree-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 16px 0;
-  overflow-x: auto;
 }
 
 .rel-tree-ancestor {
@@ -1037,9 +1011,4 @@ body {
   width: 2px;
   height: 12px;
   background: var(--color-border);
-}
-
-.desc-tree-relation {
-  color: var(--color-primary-light);
-  font-size: 11px;
 }

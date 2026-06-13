@@ -88,6 +88,45 @@ const data = await API.getAllMembers(this.currentGenealogyId);
 
 ---
 
+### 🔴🔴 P0 - 最紧急：成员列表 page_size 隐式上限（导致族谱树只显示部分成员）
+
+**现象**：前端请求 `GET /api/genealogy/{gid}/member?page_size=99999` 期望获取全部成员来构建完整族谱树，但实际只返回了部分成员（例如仅有几百条），导致族谱树只显示最顶层几代。
+
+**疑似根因**：后端代码中 `page_size` 参数存在隐式上限（如 `min(page_size, 100)` 或 `min(page_size, 500)`），即使前端传 99999 也只返回上限数量的记录。
+
+**验证方法**：
+```
+# 在 Apifox 中测试，对比不同 page_size 的返回数量
+GET /api/genealogy/{gid}/member?page=1&page_size=20      → 返回 20 条 ✅
+GET /api/genealogy/{gid}/member?page=1&page_size=200     → 返回 ??? 条
+GET /api/genealogy/{gid}/member?page=1&page_size=99999   → 返回 ??? 条（与 200 相同则说明有上限）
+```
+
+**后端修复要求**（二选一）：
+
+**方案 A（推荐）：移除 page_size 上限，或提高至 99999**
+```cpp
+// Drogon 控制器中，找到类似以下的代码并修改：
+// 修改前：
+int pageSize = std::min(req->getParameter("page_size", 100), 500);  // ❌ 硬编码上限
+// 修改后：
+int pageSize = req->getParameter("page_size", 20);  // 允许前端控制，默认 20
+// 注意：同时确保启用 gzip 压缩以应对大数据量传输
+```
+
+**方案 B（备选）：新增专用的全量树接口**
+```
+GET /api/genealogy/{gid}/tree
+```
+- 返回精简字段：`member_id, name, gender, father_id, mother_id, spouse_id, generation`
+- 无分页，一次返回全部成员
+- 响应体启用 gzip 后通常 < 5MB（10 万条记录）
+- 前端会改调此接口，不再用 `member?page_size=99999`
+
+**注意**：此问题同时影响后代查询（`descendants`）和成员管理页面，是当前族谱树"只显示部分成员"的直接原因。
+
+---
+
 ### 🔴 P0 - 致命：祖先/后代递归查询
 
 **触发场景**：用户进行祖先查询或后代查询
