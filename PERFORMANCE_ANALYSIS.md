@@ -250,6 +250,57 @@ const data = await API.getAllMembers(this.currentGenealogyId);
 
 ---
 
+### 🟡 P1 - 严重：亲缘关系查询展示需要新格式（需后端改造）
+
+**问题描述**：亲缘关系查询结果应显示以公共祖先为根节点、两条路径分别延伸到两个查询成员作为叶节点的一棵树。当前返回格式无法支持前端树状渲染。
+
+**前端已支持（兼容新旧两种格式）**，但新格式效果最佳。
+
+**后端改造需求**：`GET /api/member/relationship?member_id1=X&member_id2=Y`
+
+**当前响应格式**（已废弃）：
+```json
+{
+  "has_relationship": true,
+  "relationship_type": "blood",
+  "common_relative": {"member_id": 10, "name": "张一"},
+  "path1": [{"name": "张三", "relation": "儿子"}],
+  "path2": [{"name": "张四", "relation": "女儿"}]
+}
+```
+
+**新响应格式**（需要后端改造）：
+```json
+{
+  "has_relationship": true,
+  "relationship_type": "blood",
+  "common_ancestor": {
+    "member_id": 10, "name": "张一", "generation": 1, "gender": "male",
+    "birth_date": "1800-01-01", "death_date": "1870-01-01"
+  },
+  "path_to_member1": [
+    {"member_id": 10, "name": "张一", "generation": 1, "gender": "male"},
+    {"member_id": 50, "name": "张二", "generation": 2, "gender": "male"},
+    {"member_id": 100, "name": "张三", "generation": 3, "gender": "male"}
+  ],
+  "path_to_member2": [
+    {"member_id": 10, "name": "张一", "generation": 1, "gender": "male"},
+    {"member_id": 60, "name": "张四", "generation": 2, "gender": "male"},
+    {"member_id": 200, "name": "张五", "generation": 3, "gender": "male"}
+  ]
+}
+```
+
+**关键改造点**：
+1. `common_relative` → `common_ancestor`：增加 `generation`、`gender`、`birth_date`、`death_date` 字段
+2. `path1` / `path2` → `path_to_member1` / `path_to_member2`：
+   - 每条路径从公共祖先（含）到目标成员（含），按辈分从小到大排序
+   - 每个节点必须包含完整字段：`member_id`, `name`, `generation`, `gender`, `birth_date`, `death_date`
+   - 前端需要 `generation` 和 `gender` 来过滤同辈只保留男性节点
+3. 若两条路径在某一代有共同节点（如共父共母），该节点应在两条路径中都出现（前端会合并显示）
+
+---
+
 ### 🟢 P2 - 中等：通用问题
 
 1. **无响应压缩**：后端未启用 gzip/brotli，10万条 JSON 原始传输数十 MB

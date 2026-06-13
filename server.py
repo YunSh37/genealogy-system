@@ -135,4 +135,10 @@ if __name__ == "__main__":
     print(f"  后端代理: {BASE_URL}")
     print(f"  Debug 模式: {'开' if debug_mode else '关'}")
     print("=" * 50)
+    # 预建立 TCP 连接池，避免第一次 API 调用时还需三次握手
+    try:
+        _session.get(BASE_URL, timeout=2)
+        print("  [预连接] 后端连接已建立")
+    except Exception:
+        print("  [预连接] 后端暂未响应（稍后将自动连接）")
     app.run(host="0.0.0.0", port=5000, debug=debug_mode, threaded=True)

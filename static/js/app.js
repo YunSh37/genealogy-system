@@ -39,9 +39,10 @@ const App = {
     btn.disabled = loading;
     if (loading) {
       btn.dataset.prevText = btn.textContent;
-      btn.textContent = '...';
+      btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;vertical-align:middle;margin-right:4px"></span> 处理中...';
     } else if (btn.dataset.prevText) {
-      btn.textContent = btn.dataset.prevText;
+      btn.innerHTML = btn.dataset.prevText;
+      delete btn.dataset.prevText;
     }
   },
 
@@ -106,6 +107,8 @@ const App = {
   _showLoginView() {
     document.getElementById('view-login').classList.add('active');
     document.getElementById('view-main').classList.remove('active');
+    // 预连接：趁用户还没输入时提前建立代理 TCP 连接，让登录更快
+    setTimeout(() => { fetch('/api/genealogy', {method: 'GET'}).catch(() => {}); }, 800);
   },
 
   _showMainView(user) {
@@ -563,6 +566,8 @@ const App = {
 
   _renderMemberTable(members) {
     const tbody = document.querySelector('#member-table tbody');
+    // 按 ID 正序排列（如果后端未排序）
+    members = [...members].sort((a, b) => (a.member_id || 0) - (b.member_id || 0));
     tbody.innerHTML = members.map(m => {
       const birth = (m.birth_date || '').substring(0, 10);
       const death = (m.death_date || '').substring(0, 10);
@@ -729,44 +734,71 @@ const App = {
     try {
       const data = await API.getAncestors(memberId, depth);
       const target = data.target_member || {};
-      const ancestors = data.ancestors || [];
+      const raw = data.ancestors || [];
 
-      if (ancestors.length === 0) {
+      if (raw.length === 0) {
         el.innerHTML = '<p style="text-align:center;color:#999;padding:40px">未查询到祖先信息</p>';
         return;
       }
 
-      // 将祖先从远到近排序（后端应已排序，但前端保险处理）
-      const sorted = [...ancestors].sort((a, b) => (b.generation || 0) - (a.generation || 0));
+      // 过滤：同辈分存在两个人时只保留男性
+      const byGen = {};
+      raw.forEach(a => {
+        const gen = a.generation ?? 0;
+        if (!byGen[gen]) byGen[gen] = [];
+        byGen[gen].push(a);
+      });
+      const filtered = [];
+      Object.keys(byGen).sort((a, b) => +a - +b).forEach(gen => {
+        const group = byGen[gen];
+        const male = group.find(a => a.gender === 'male');
+        filtered.push(male || group[0]);
+      });
 
-      // 构建纵向路径图
-      const pathHtml = sorted.map((a, i) => `
-        <div class="anc-node">
-          <div class="anc-card">
-            <div class="anc-name">${a.name || ''}</div>
-            <div class="anc-meta">第${a.generation ?? '?'}代 · ${a.relation || ''}</div>
-            <div class="anc-life">${(a.birth_date || '').substring(0, 10)} — ${(a.death_date || '').substring(0, 10)}</div>
-          </div>
-          ${i < sorted.length - 1 ? '<div class="anc-arrow">▼</div>' : ''}
-        </div>`).join('');
+      // 从远到近排序（generation 小的先出现）
+      filtered.sort((a, b) => (a.generation || 0) - (b.generation || 0));
 
-      const targetHtml = target.member_id ? `
-        <div class="anc-arrow">▼</div>
-        <div class="anc-node">
-          <div class="anc-card anc-card-target">
-            <div class="anc-name">${target.name || ''}</div>
-            <div class="anc-meta">第${target.generation ?? '?'}代 · 查询目标</div>
-            <div class="anc-life">${(target.birth_date || '').substring(0, 10)} — ${(target.death_date || '').substring(0, 10)}</div>
+      // 计算 S 形布局
+      const containerW = el.clientWidth - 32;
+      const cardW = 150;
+      const cardGap = 16;
+      const perRow = Math.max(1, Math.floor((containerW + cardGap) / (cardW + cardGap)));
+
+      // 拆分为行（蛇形：奇数行 LTR，偶数行 RTL）
+      const rows = [];
+      for (let i = 0; i < filtered.length; i += perRow) {
+        rows.push(filtered.slice(i, i + perRow));
+      }
+
+      // 渲染每行
+      const rowHtml = rows.map((row, ri) => {
+        const isRTL = ri % 2 === 1;
+        const dir = isRTL ? 'rtl' : 'ltr';
+        const items = isRTL ? [...row].reverse() : row;
+        return `
+          <div class="anc-snake-row anc-snake-${dir}">
+            ${items.map((a, i) => {
+              const genColor = a.gender === 'female' ? 'var(--color-female)' : 'var(--color-male)';
+              const arrow = (i < items.length - 1)
+                ? `<div class="anc-snake-arrow">${isRTL ? '←' : '→'}</div>`
+                : '';
+              return `
+                <div class="anc-snake-card" style="border-top:3px solid ${genColor}">
+                  <div class="anc-snake-name">${a.name || ''}</div>
+                  <div class="anc-snake-meta">第${a.generation ?? '?'}代 · ${a.relation || ''}</div>
+                  <div class="anc-snake-life">${(a.birth_date || '').substring(0, 10)}</div>
+                </div>
+                ${arrow}`;
+            }).join('')}
           </div>
-        </div>` : '';
+          ${ri < rows.length - 1 ? '<div class="anc-snake-connector">↧</div>' : ''}`;
+      }).join('');
 
       el.innerHTML = `
-        <div class="anc-path">
-          <div style="text-align:center;margin-bottom:12px;font-size:13px;color:var(--color-text-light)">
-            共 ${ancestors.length} 代祖先 · 回溯深度 ${depth}
-          </div>
-          ${pathHtml}${targetHtml}
-        </div>`;
+        <div style="margin-bottom:12px;font-size:13px;color:var(--color-text-light)">
+          <strong>查询目标：</strong>${target.name || ''} (ID:${memberId}) · ${filtered.length} 位祖先 · 深度 ${depth}
+        </div>
+        <div class="anc-snake-container">${rowHtml}</div>`;
     } catch (e) {
       el.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:40px">查询失败：${e.message}</p>`;
     } finally {
@@ -866,27 +898,80 @@ const App = {
         return;
       }
 
-      let html = `<p style="margin-bottom:12px"><strong>关系类型：</strong>${typeMap[data.relationship_type] || data.relationship_type}</p>`;
+      let html = `<div style="margin-bottom:12px;font-size:13px;color:var(--color-text-light)">
+        <strong>关系类型：</strong>${typeMap[data.relationship_type] || data.relationship_type}
+      </div>`;
 
-      if (data.common_relative && data.common_relative.name) {
-        html += `<p style="margin-bottom:8px"><strong>公共祖先：</strong>${data.common_relative.name} (ID:${data.common_relative.member_id})</p>`;
-      }
+      // 使用新格式（后端已返回 path_to_member1 / path_to_member2）
+      const path1 = data.path_to_member1 || data.path1 || [];
+      const path2 = data.path_to_member2 || data.path2 || [];
+      const ancestor = data.common_ancestor || data.common_relative || {};
 
-      // 路径展示
-      if (data.path1 && data.path2) {
-        html += '<div style="display:flex;align-items:center;gap:8px;padding:16px;overflow-x:auto;flex-wrap:wrap">';
-        const path1 = data.path1 || [];
-        const path2 = (data.path2 || []).slice().reverse();
-        const allPath = [...path1, ...path2];
-        allPath.forEach((p, i) => {
-          const isEndpoint = (i === 0 || i === allPath.length - 1);
-          html += `<span style="padding:6px 12px;background:${isEndpoint ? '#F5E6D3' : '#EDF4FA'};border-radius:6px;font-size:13px;border:1px solid ${isEndpoint ? '#D4A574' : '#5B8DB8'}">
-            ${p.name || '?'} <small style="color:#999">${p.relation || ''}</small>
-          </span>`;
-          if (i < allPath.length - 1) html += '<span style="color:#999">→</span>';
+      // 过滤：同辈只保留男性
+      const filterByGen = (path) => {
+        const byGen = {};
+        path.forEach(n => {
+          const gen = n.generation ?? 0;
+          if (!byGen[gen]) byGen[gen] = [];
+          byGen[gen].push(n);
         });
-        html += '</div>';
-      }
+        const result = [];
+        Object.keys(byGen).sort((a, b) => +a - +b).forEach(gen => {
+          const group = byGen[gen];
+          const male = group.find(n => n.gender === 'male');
+          result.push(male || group[0]);
+        });
+        return result;
+      };
+
+      const fp1 = filterByGen(path1);
+      const fp2 = filterByGen(path2);
+
+      // 兼容旧格式：如果 path 是从 leaf 到 root 的顺序，需要反转
+      const p1Ordered = fp1.length >= 2 && (fp1[0].generation ?? 0) > (fp1[fp1.length - 1].generation ?? 0)
+        ? [...fp1].reverse() : fp1;
+      const p2Ordered = fp2.length >= 2 && (fp2[0].generation ?? 0) > (fp2[fp2.length - 1].generation ?? 0)
+        ? [...fp2].reverse() : fp2;
+
+      // 渲染路径节点
+      const renderPath = (path, sideClass) => {
+        if (path.length === 0) return '';
+        return path.map((n, i) => {
+          const isLast = i === path.length - 1;
+          const color = n.gender === 'female' ? 'var(--color-female)' : 'var(--color-male)';
+          return `
+            <div class="rel-tree-node-wrap">
+              <div class="rel-tree-node ${isLast ? 'rel-tree-leaf' : ''}" style="border-left:3px solid ${color}">
+                <div class="rel-tree-name">${n.name || '?'}</div>
+                <div class="rel-tree-meta">第${n.generation ?? '?'}代${n.relation ? ' · ' + n.relation : ''}</div>
+              </div>
+              ${i < path.length - 1 ? '<div class="rel-tree-line"></div>' : ''}
+            </div>`;
+        }).join('');
+      };
+
+      html += `
+        <div class="rel-tree-container">
+          <div class="rel-tree-ancestor">
+            <div class="rel-tree-node rel-tree-root">
+              <div class="rel-tree-name">${ancestor.name || '公共祖先'}</div>
+              <div class="rel-tree-meta">第${ancestor.generation ?? '?'}代 · 公共祖先</div>
+            </div>
+          </div>
+          <div class="rel-tree-split">
+            <div class="rel-tree-split-line"></div>
+          </div>
+          <div class="rel-tree-branches">
+            <div class="rel-tree-branch">
+              <div class="rel-tree-branch-line"></div>
+              ${renderPath(p1Ordered.slice(1), 'path1')}
+            </div>
+            <div class="rel-tree-branch">
+              <div class="rel-tree-branch-line"></div>
+              ${renderPath(p2Ordered.slice(1), 'path2')}
+            </div>
+          </div>
+        </div>`;
 
       el.innerHTML = html;
     } catch (e) {
