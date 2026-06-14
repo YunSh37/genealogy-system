@@ -897,6 +897,39 @@ body {
   cursor: grabbing;
 }
 
+/* ==================== Canvas 横向滑轨 ==================== */
+.canvas-hscroll {
+  position: absolute;
+  bottom: 6px;
+  left: 12px;
+  right: 12px;
+  height: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 5px;
+  z-index: 10;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.canvas-hscroll:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.canvas-hscroll-thumb {
+  position: absolute;
+  height: 100%;
+  background: rgba(139, 58, 58, 0.35);
+  border-radius: 5px;
+  cursor: grab;
+  transition: background 0.15s;
+  min-width: 40px;
+}
+
+.canvas-hscroll-thumb:hover,
+.canvas-hscroll-thumb:active {
+  background: rgba(139, 58, 58, 0.65);
+}
+
 /* ==================== 亲缘关系树 ==================== */
 .rel-canvas-container {
   background: #fff;
@@ -917,6 +950,38 @@ body {
 .rel-zoom-tree {
   transform-origin: 0 0;
   padding: 16px;
+}
+
+.rel-hscroll {
+  position: absolute;
+  bottom: 6px;
+  left: 12px;
+  right: 12px;
+  height: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 5px;
+  z-index: 10;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.rel-hscroll:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.rel-hscroll-thumb {
+  position: absolute;
+  height: 100%;
+  background: rgba(139, 58, 58, 0.35);
+  border-radius: 5px;
+  cursor: grab;
+  transition: background 0.15s;
+  min-width: 40px;
+}
+
+.rel-hscroll-thumb:hover,
+.rel-hscroll-thumb:active {
+  background: rgba(139, 58, 58, 0.65);
 }
 
 .rel-tree-container {

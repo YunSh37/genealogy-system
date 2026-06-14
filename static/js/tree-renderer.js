@@ -66,6 +66,8 @@ const TreeRenderer = {
 
   // ---- 事件绑定 ----
   _bindEvents() {
+    if (this._eventsBound) return;  // 防止重复绑定（同一实例多次 init 时）
+    this._eventsBound = true;
     this.canvas.addEventListener('wheel', e => {
       e.preventDefault();
       const rect = this.canvas.getBoundingClientRect();

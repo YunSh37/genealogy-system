@@ -1,4 +1,114 @@
 /* ============================================================
+   Canvas 横向滑轨模块
+   为 Canvas 树谱树添加底部滚动条，控制左右平移
+   ============================================================ */
+const HScrollbar = {
+  attach(renderer, containerSelector) {
+    if (!renderer || !renderer.canvas) return;
+
+    const canvas = renderer.canvas;
+    const parent = canvas.parentElement;
+    if (!parent) return;
+
+    // 创建滑轨（若已存在则复用）
+    let track = parent.querySelector('.canvas-hscroll');
+    if (!track) {
+      track = document.createElement('div');
+      track.className = 'canvas-hscroll';
+      track.innerHTML = '<div class="canvas-hscroll-thumb"></div>';
+      parent.appendChild(track);
+    }
+    const thumb = track.querySelector('.canvas-hscroll-thumb');
+
+    // 拖拽滑轨
+    let dragging = false, startX = 0, startLeft = 0;
+    thumb.onmousedown = (e) => {
+      e.preventDefault();
+      dragging = true;
+      startX = e.clientX;
+      startLeft = thumb.offsetLeft;
+      document.body.style.userSelect = 'none';
+    };
+    const onMove = (e) => {
+      if (!dragging) return;
+      const trackW = track.clientWidth;
+      const thumbW = thumb.offsetWidth;
+      const maxLeft = trackW - thumbW;
+      if (maxLeft <= 0) return;
+      const newLeft = Math.max(0, Math.min(maxLeft, startLeft + (e.clientX - startX)));
+      const ratio = newLeft / maxLeft;
+      const nodes = renderer.nodes || [];
+      if (nodes.length === 0) return;
+      let minX = Infinity, maxX = -Infinity;
+      nodes.forEach(n => {
+        if (n.x < minX) minX = n.x;
+        if (n.x + n.w > maxX) maxX = n.x + n.w;
+      });
+      const treeW = maxX - minX + 40;
+      const vpW = canvas.clientWidth / renderer.zoom;
+      if (treeW <= vpW) return;
+      const viewRange = treeW - vpW;
+      renderer.viewX = -(minX - 20 + ratio * viewRange) * renderer.zoom;
+      renderer._render();
+    };
+    const onUp = () => { dragging = false; document.body.style.userSelect = ''; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+
+    // 点击轨道跳转
+    track.onclick = (e) => {
+      if (e.target === thumb) return;
+      const rect = track.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const thumbW = thumb.offsetWidth;
+      const maxLeft = track.clientWidth - thumbW;
+      if (maxLeft <= 0) return;
+      const newLeft = Math.max(0, Math.min(maxLeft, clickX - thumbW / 2));
+      const ratio = newLeft / maxLeft;
+      const nodes = renderer.nodes || [];
+      if (nodes.length === 0) return;
+      let minX = Infinity, maxX = -Infinity;
+      nodes.forEach(n => {
+        if (n.x < minX) minX = n.x;
+        if (n.x + n.w > maxX) maxX = n.x + n.w;
+      });
+      const treeW = maxX - minX + 40;
+      const vpW = canvas.clientWidth / renderer.zoom;
+      if (treeW <= vpW) return;
+      renderer.viewX = -(minX - 20 + ratio * (treeW - vpW)) * renderer.zoom;
+      renderer._render();
+    };
+
+    // Hook _render 同步滑轨位置（canvas 平移/缩放时自动更新滑轨）
+    const origRender = renderer._render.bind(renderer);
+    renderer._render = function() {
+      origRender();
+      const nodes = this.nodes || [];
+      if (nodes.length === 0) { track.style.display = 'none'; return; }
+      let minX = Infinity, maxX = -Infinity;
+      nodes.forEach(n => {
+        if (n.x < minX) minX = n.x;
+        if (n.x + n.w > maxX) maxX = n.x + n.w;
+      });
+      const treeW = maxX - minX + 40;
+      const vpW = canvas.clientWidth / this.zoom;
+      if (treeW <= vpW) { track.style.display = 'none'; return; }
+      track.style.display = '';
+      const viewStart = -this.viewX / this.zoom;
+      const viewEnd = viewStart + vpW;
+      const trackW = track.clientWidth;
+      const thumbW = Math.max(40, Math.round((vpW / treeW) * trackW));
+      const maxLeft = trackW - thumbW;
+      const scrollRange = treeW - vpW;
+      const scrolled = viewStart - (minX - 20);
+      const ratio = Math.max(0, Math.min(1, scrolled / scrollRange));
+      thumb.style.width = thumbW + 'px';
+      thumb.style.left = Math.round(ratio * maxLeft) + 'px';
+    };
+  },
+};
+
+/* ============================================================
    亲缘关系树 缩放/平移 模块
    为关系树 HTML 结构添加鼠标滚轮缩放 + 拖拽平移
    ============================================================ */
@@ -73,6 +183,82 @@ const RelZoom = {
   zoomIn()  { this.zoom = Math.min(this.maxZoom, this.zoom * 1.2); this._apply(); },
   zoomOut() { this.zoom = Math.max(this.minZoom, this.zoom / 1.2); this._apply(); },
   fit()     { this.zoom = 1; this.panX = 0; this.panY = 0; this._apply(); },
+
+  addScrollbar() {
+    if (!this.container) return;
+    // 防止重复添加
+    if (this.container.querySelector('.rel-hscroll')) return;
+    const track = document.createElement('div');
+    track.className = 'rel-hscroll';
+    track.innerHTML = '<div class="rel-hscroll-thumb"></div>';
+    this.container.appendChild(track);
+    const thumb = track.querySelector('.rel-hscroll-thumb');
+
+    let dragging = false, startX = 0, startLeft = 0;
+    thumb.onmousedown = (e) => {
+      e.preventDefault();
+      dragging = true;
+      startX = e.clientX;
+      startLeft = thumb.offsetLeft;
+      document.body.style.userSelect = 'none';
+    };
+    const onMove = (e) => {
+      if (!dragging || !this.tree) return;
+      const maxLeft = track.clientWidth - thumb.offsetWidth;
+      if (maxLeft <= 0) return;
+      const newLeft = Math.max(0, Math.min(maxLeft, startLeft + (e.clientX - startX)));
+      const treeW = this.tree.scrollWidth;
+      const containerW = this.container.clientWidth;
+      const scale = this.zoom;
+      const scaledW = treeW * scale;
+      if (scaledW <= containerW) return;
+      const maxPan = scaledW - containerW;
+      const ratio = newLeft / maxLeft;
+      this.panX = -ratio * maxPan;
+      this._apply();
+      thumb.style.left = newLeft + 'px';
+    };
+    const onUp = () => { dragging = false; document.body.style.userSelect = ''; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+
+    track.onclick = (e) => {
+      if (e.target === thumb || !this.tree) return;
+      const rect = track.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const thumbW = thumb.offsetWidth;
+      const maxLeft = track.clientWidth - thumbW;
+      if (maxLeft <= 0) return;
+      const newLeft = Math.max(0, Math.min(maxLeft, clickX - thumbW / 2));
+      const treeW = this.tree.scrollWidth;
+      const containerW = this.container.clientWidth;
+      const scaledW = treeW * this.zoom;
+      if (scaledW <= containerW) return;
+      const maxPan = scaledW - containerW;
+      this.panX = -(newLeft / maxLeft) * maxPan;
+      this._apply();
+      thumb.style.left = newLeft + 'px';
+    };
+
+    // 每次 _apply 时同步滑轨位置
+    const origApply = this._apply.bind(this);
+    this._apply = () => {
+      origApply();
+      if (!this.tree) return;
+      const treeW = this.tree.scrollWidth;
+      const containerW = this.container.clientWidth;
+      const scale = this.zoom;
+      const scaledW = treeW * scale;
+      if (scaledW <= containerW) { track.style.display = 'none'; return; }
+      track.style.display = '';
+      const thumbW = Math.max(40, Math.round((containerW / scaledW) * track.clientWidth));
+      thumb.style.width = thumbW + 'px';
+      const maxLeft = track.clientWidth - thumbW;
+      const maxPan = scaledW - containerW;
+      const ratio = Math.max(0, Math.min(1, -this.panX / maxPan));
+      thumb.style.left = Math.round(ratio * maxLeft) + 'px';
+    };
+  },
 
   destroy() {
     if (this._wheelHandler && this.container) this.container.removeEventListener('wheel', this._wheelHandler);
@@ -623,6 +809,9 @@ const App = {
           this._showMemberDetailModal(member.member_id);
         });
         TreeRenderer.loadMembers(members);
+
+        // 绑定横向滑轨
+        HScrollbar.attach(TreeRenderer, '.tree-container');
       });
     } catch (e) {
       container.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:60px">加载族谱树失败：${e.message}</p>`;
@@ -962,6 +1151,9 @@ const App = {
         el.querySelector('.desc-zoom-in')?.addEventListener('click', () => this._descRenderer.zoomIn());
         el.querySelector('.desc-zoom-out')?.addEventListener('click', () => this._descRenderer.zoomOut());
         el.querySelector('.desc-fit')?.addEventListener('click', () => this._descRenderer.fitView());
+
+        // 绑定横向滑轨
+        HScrollbar.attach(this._descRenderer, '.desc-canvas-container');
       });
     } catch (e) {
       el.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:40px">查询失败：${e.message}</p>`;
@@ -1074,6 +1266,7 @@ const App = {
 
       // 初始化缩放/平移
       RelZoom.init('rel-zoom-wrap');
+      RelZoom.addScrollbar();
       el.querySelector('.rel-zoom-in')?.addEventListener('click', () => RelZoom.zoomIn());
       el.querySelector('.rel-zoom-out')?.addEventListener('click', () => RelZoom.zoomOut());
       el.querySelector('.rel-fit')?.addEventListener('click', () => RelZoom.fit());
