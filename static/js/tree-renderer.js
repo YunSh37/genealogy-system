@@ -30,6 +30,7 @@ const TreeRenderer = {
   dragViewY: 0,
   selectedNode: null,
   hoveredNode: null,
+  highlightedIds: null,  // Set<number>：需要高亮的成员 ID 集合
   onNodeClick: null,
 
   // 颜色
@@ -40,6 +41,7 @@ const TreeRenderer = {
   colorSpouse: '#9B7FB8',
   colorLine: '#C4B8A8',
   colorSelected: '#D4A574',
+  colorHighlight: '#E6A817',  // 查询目标高亮色（金色）
   colorText: '#2C2C2C',
   colorTextLight: '#888',
 
@@ -344,9 +346,13 @@ const TreeRenderer = {
     const isMale = n.gender === 'male';
     const isSelected = n === this.selectedNode;
     const isHovered = n === this.hoveredNode;
+    const isHighlighted = this.highlightedIds && this.highlightedIds.has(n.member_id);
 
     // 阴影
-    if (isSelected) {
+    if (isHighlighted) {
+      ctx.shadowColor = this.colorHighlight;
+      ctx.shadowBlur = 10;
+    } else if (isSelected) {
       ctx.shadowColor = this.colorSelected;
       ctx.shadowBlur = 12;
     } else if (isHovered) {
@@ -372,9 +378,20 @@ const TreeRenderer = {
     ctx.fillStyle = isMale ? this.colorMaleFill : this.colorFemaleFill;
     ctx.fill();
 
-    // 边框
-    ctx.strokeStyle = isSelected ? this.colorSelected : (isHovered ? '#999' : (isMale ? this.colorMale : this.colorFemale));
-    ctx.lineWidth = isSelected ? 2.5 : (isHovered ? 2 : 1.5);
+    // 边框（高亮 > 选中 > 悬停 > 默认）
+    if (isHighlighted) {
+      ctx.strokeStyle = this.colorHighlight;
+      ctx.lineWidth = 3;
+    } else if (isSelected) {
+      ctx.strokeStyle = this.colorSelected;
+      ctx.lineWidth = 2.5;
+    } else if (isHovered) {
+      ctx.strokeStyle = '#999';
+      ctx.lineWidth = 2;
+    } else {
+      ctx.strokeStyle = isMale ? this.colorMale : this.colorFemale;
+      ctx.lineWidth = 1.5;
+    }
     ctx.stroke();
 
     ctx.shadowColor = 'transparent';

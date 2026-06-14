@@ -877,6 +877,7 @@ const App = {
         TreeRenderer.init('tree-canvas', (member) => {
           this._showMemberDetailModal(member.member_id);
         });
+        TreeRenderer.highlightedIds = new Set([ancestorId]);
         TreeRenderer.loadMembers(allMembers);
 
         // 绑定横向滑轨
@@ -1159,12 +1160,14 @@ const App = {
               const arrow = (i < items.length - 1)
                 ? `<div class="anc-snake-arrow">${isRTL ? '←' : '→'}</div>`
                 : '';
+              const isTarget = a.member_id === target.member_id;
+              const highlightClass = isTarget ? ' anc-snake-target' : '';
               // 性别决定父亲/母亲标签
-              const relLabel = a.member_id === target.member_id
+              const relLabel = isTarget
                 ? '本人'
                 : (a.gender === 'female' ? '母亲' : '父亲');
               return `
-                <div class="anc-snake-card" data-member-id="${a.member_id || ''}" style="border-top:3px solid ${genColor};cursor:pointer">
+                <div class="anc-snake-card${highlightClass}" data-member-id="${a.member_id || ''}" style="border-top:3px solid ${isTarget ? '#E6A817' : genColor};cursor:pointer">
                   <div class="anc-snake-name">${a.name || ''}</div>
                   <div class="anc-snake-meta">第${a.generation ?? '?'}代 · ${relLabel}</div>
                   <div class="anc-snake-life">${(a.birth_date || '').substring(0, 10)}</div>
@@ -1238,6 +1241,7 @@ const App = {
       TreeRenderer.zoom = 1.0;
       TreeRenderer.selectedNode = null;
       TreeRenderer.hoveredNode = null;
+      TreeRenderer.highlightedIds = new Set([memberId]);
 
       // 等一帧确保 canvas 在 DOM 中完成布局
       requestAnimationFrame(() => {
@@ -1324,10 +1328,12 @@ const App = {
         if (path.length === 0) return '';
         return path.map((n, i) => {
           const isLast = i === path.length - 1;
-          const color = n.gender === 'female' ? 'var(--color-female)' : 'var(--color-male)';
+          const isEndpoint = n.member_id === id1 || n.member_id === id2;
+          const highlightClass = isEndpoint ? ' rel-tree-endpoint' : '';
+          const borderColor = isEndpoint ? '#E6A817' : (n.gender === 'female' ? 'var(--color-female)' : 'var(--color-male)');
           return `
             <div class="rel-tree-node-wrap">
-              <div class="rel-tree-node ${isLast ? 'rel-tree-leaf' : ''}" data-member-id="${n.member_id || ''}" style="border-left:3px solid ${color};cursor:pointer">
+              <div class="rel-tree-node ${isLast ? 'rel-tree-leaf' : ''}${highlightClass}" data-member-id="${n.member_id || ''}" style="border-left:3px solid ${borderColor};cursor:pointer">
                 <div class="rel-tree-name">${n.name || '?'}</div>
                 <div class="rel-tree-meta">第${n.generation ?? '?'}代${n.relation ? ' · ' + n.relation : ''}</div>
               </div>

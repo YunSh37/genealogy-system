@@ -848,6 +848,15 @@ body {
   transform: translateY(-1px);
 }
 
+/* 查询目标高亮 */
+.anc-snake-target {
+  background: #FFF8E1;
+  box-shadow: 0 0 0 2px #E6A817, var(--shadow-sm);
+}
+.anc-snake-target:hover {
+  box-shadow: 0 0 0 2px #E6A817, var(--shadow-md);
+}
+
 .anc-snake-name {
   font-size: 14px;
   font-weight: 600;
@@ -1064,6 +1073,13 @@ body {
 .rel-tree-leaf {
   border-color: var(--color-primary-light);
   background: #FFFEFB;
+}
+
+/* 亲缘查询端点高亮 */
+.rel-tree-endpoint {
+  background: #FFF8E1;
+  box-shadow: 0 0 0 2px #E6A817, var(--shadow-sm);
+  border-color: #E6A817 !important;
 }
 
 .rel-tree-name {
