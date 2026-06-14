@@ -153,26 +153,34 @@ cd /tmp
 #### 第 2 步：启动 MySQL 并创建数据库
 
 ```bash
-# 启动 MySQL 服务（WSL 中需手动启动）
+# 启动 MySQL 服务（WSL 中需手动启动，每次重启 WSL 后都要执行）
 sudo service mysql start
 
-# 创建数据库
+# 创建数据库（使用 sudo，WSL 默认 auth_socket 认证无需密码）
 sudo mysql -u root -e "CREATE DATABASE IF NOT EXISTS genealogy_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+# ★ 重要：设置 root 密码，使后端程序能通过 TCP 连接数据库
+#   Drogon 后端通过 127.0.0.1:3306 连接 MySQL，必须使用密码认证
+#   如果跳过此步骤，后端启动时会报 "Access denied" 错误
+sudo mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '123456'; FLUSH PRIVILEGES;"
 ```
+
+> 密码设为 `123456`（开发环境）。生产环境请使用强密码。
+> 执行后 `sudo mysql` 也将需要密码，后续命令统一使用 `mysql -u root -p123456`。
 
 ---
 
 #### 第 3 步：执行建表脚本
 
 ```bash
-# 回到项目 backend 目录（如果不是的话）
+# 回到项目 backend 目录
 cd /mnt/d/shujuku/tmp/genealogy-system/backend
 
-# 执行完整建表脚本（6 张表 + 索引 + CHECK 约束）
-sudo mysql -u root genealogy_db < migrations/init_schema.sql
+# 执行完整建表脚本（6 张表 + 13 个索引 + CHECK 约束）
+mysql -u root -p123456 genealogy_db < migrations/init_schema.sql
 
 # 执行性能优化迁移（ancestor_path 物化路径 + 全文索引 + 统计缓存表）
-sudo mysql -u root genealogy_db < migrations/migration_phase3.sql
+mysql -u root -p123456 genealogy_db < migrations/migration_phase3.sql
 ```
 
 ---
@@ -183,11 +191,10 @@ sudo mysql -u root genealogy_db < migrations/migration_phase3.sql
 # 进入 migrations 目录
 cd migrations
 
-# 运行数据生成脚本（生成 10 个族谱、10 万+ 成员、最大深度 30 代）
+# 运行数据生成脚本（生成 CSV 文件到 migrations/test_data/ 目录）
 python3 generate_test_data.py
 
-# 脚本会在 migrations/data/ 目录下生成以下 CSV 文件：
-#   user.csv   genealogy.csv   member.csv   marriage.csv   genealogy_share.csv
+# 生成的数据量：10 个族谱、100,534 名成员、~50,000 条婚姻、最大深度 30 代
 
 cd ..
 ```
@@ -197,13 +204,15 @@ cd ..
 #### 第 5 步：导入数据到 MySQL
 
 ```bash
-# 将生成的 CSV 文件导入数据库
-./import_data.sh migrations/data
+# 导出密码环境变量（import_data.sh 自动读取，跳过交互提示）
+export MYSQL_PASSWORD=123456
 
-# 提示输入 MySQL 密码时，直接回车（WSL 中 sudo mysql 无需密码）
+# 将生成的 CSV 文件导入数据库
+./import_data.sh migrations/test_data
 ```
 
-> 如果你有自己的 CSV 数据文件，将 `migrations/data` 替换为你的数据目录路径即可。
+> **手动密码模式**：不设置 `MYSQL_PASSWORD` 环境变量，脚本会交互式询问密码。
+> **自定义数据**：将 `migrations/test_data` 替换为你的 CSV 数据目录路径。
 
 ---
 
@@ -226,7 +235,7 @@ cmake --build .
 # 回到 backend 目录
 cd /mnt/d/shujuku/tmp/genealogy-system/backend
 
-# 创建 config.json（将下面 JSON 中的密码改为你的实际密码）
+# 创建 config.json（密码 123456 与第 2 步中设置的一致）
 cat > config.json << 'EOF'
 {
     "listeners": [
@@ -243,7 +252,7 @@ cat > config.json << 'EOF'
             "port": 3306,
             "dbname": "genealogy_db",
             "user": "root",
-            "password": "",
+            "password": "123456",
             "client_encoding": "utf8mb4"
         }
     ],
@@ -289,17 +298,81 @@ curl http://localhost:8088/
 #### 完整流程速查
 
 ```
+# ===== 后端完整部署流程（WSL2 / Linux）=====
 wsl                                                          # 进入 WSL
 cd /mnt/d/shujuku/tmp/genealogy-system/backend               # 定位到后端目录
+# --- 数据库 ---
 sudo service mysql start                                      # 启动 MySQL
 sudo mysql -u root -e "CREATE DATABASE IF NOT EXISTS genealogy_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-sudo mysql -u root genealogy_db < migrations/init_schema.sql  # 建表
-sudo mysql -u root genealogy_db < migrations/migration_phase3.sql  # 优化迁移
+sudo mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '123456'; FLUSH PRIVILEGES;"
+mysql -u root -p123456 genealogy_db < migrations/init_schema.sql    # 建表
+mysql -u root -p123456 genealogy_db < migrations/migration_phase3.sql  # 优化迁移
+# --- 数据 ---
 cd migrations && python3 generate_test_data.py && cd ..       # 生成测试数据
-./import_data.sh migrations/data                              # 导入数据
+export MYSQL_PASSWORD=123456 && ./import_data.sh migrations/test_data  # 导入数据
+# --- 编译运行 ---
 mkdir -p build && cd build && cmake .. && cmake --build .     # 编译
-cd .. && cat > config.json << 'EOF' ... EOF                   # 创建配置
+cd .. && cat > config.json << 'EOF'                           # 创建配置
+{
+    "listeners": [{"address": "0.0.0.0", "port": 8088}],
+    "db_clients": [{
+        "name": "default", "rdbms": "mysql",
+        "host": "127.0.0.1", "port": 3306,
+        "dbname": "genealogy_db", "user": "root",
+        "password": "123456", "client_encoding": "utf8mb4"
+    }],
+    "app": {"number_of_threads": 4}
+}
+EOF
 cd build && ./genealogy_system                                # 启动服务
+```
+
+---
+
+### 常见问题排查
+
+#### 1. MySQL 连接报错 "Access denied for user 'root'@'localhost'"
+
+```bash
+# 原因：root 用户使用 auth_socket 插件，不支持 TCP 密码连接
+# 解决：重新用 sudo 进入 MySQL 设置密码
+sudo mysql -u root
+ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '123456';
+FLUSH PRIVILEGES;
+```
+
+#### 2. import_data.sh 报 "无法连接 MySQL"
+
+```bash
+# 检查 MySQL 是否启动
+sudo service mysql status
+
+# 未启动则启动
+sudo service mysql start
+
+# 确认密码环境变量是否正确
+echo $MYSQL_PASSWORD
+
+# 或使用交互模式（不设环境变量，手动输入密码）
+unset MYSQL_PASSWORD
+./import_data.sh migrations/test_data
+```
+
+#### 3. 编译报错 "drogon/drogon.h: No such file or directory"
+
+```bash
+# Drogon 未安装或库路径未更新
+sudo ldconfig
+# 确认 /usr/local/include/drogon 目录存在
+ls /usr/local/include/drogon
+```
+
+#### 4. 后端启动后立即退出，日志显示 "Access denied"
+
+```bash
+# config.json 中的密码与 MySQL root 密码不一致
+# 检查 config.json 的 password 字段是否为 "123456"
+cat config.json | grep password
 ```
 
 ## 性能基准
