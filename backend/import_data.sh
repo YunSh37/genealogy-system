@@ -108,6 +108,16 @@ echo ">>> 导入 Member (10 万+ 条，可能需要 1-2 分钟) ..."
 $M -e "SET FOREIGN_KEY_CHECKS = 0; LOAD DATA LOCAL INFILE '$D/member.csv' INTO TABLE Member CHARACTER SET utf8mb4 FIELDS TERMINATED BY ',' ENCLOSED BY '\"' LINES TERMINATED BY '\n' IGNORE 1 ROWS (member_id, genealogy_id, name, gender, birth_date, death_date, biography, father_id, mother_id, spouse_id); SET FOREIGN_KEY_CHECKS = 1;"
 echo "  成员: $($M -N -e 'SELECT COUNT(*) FROM Member')"
 
+# ★ 关键：Python CSV DictWriter 将 None 写为空字符串 ""
+#   MySQL LOAD DATA 将空字符串导入为 0（非 NULL），导致：
+#   - father_id=0 而非 NULL → WHERE father_id IS NULL 匹配不到根节点
+#   - mother_id=0 而非 NULL → 同上
+#   - spouse_id=0 而非 NULL → 后端 getSpouseId() 可能查询 member_id=0
+#   member_id 从 1 开始，0 不可能是有效 ID，转为 NULL 安全无副作用
+$M -e "UPDATE Member SET father_id = NULL WHERE father_id = 0;"
+$M -e "UPDATE Member SET mother_id = NULL WHERE mother_id = 0;"
+$M -e "UPDATE Member SET spouse_id = NULL WHERE spouse_id = 0;"
+
 echo ">>> 导入 Marriage ..."
 $M -e "LOAD DATA LOCAL INFILE '$D/marriage.csv' INTO TABLE Marriage CHARACTER SET utf8mb4 FIELDS TERMINATED BY ',' ENCLOSED BY '\"' LINES TERMINATED BY '\n' IGNORE 1 ROWS (marriage_id, husband_id, wife_id, wedding_date, status, created_at);"
 echo "  婚姻: $($M -N -e 'SELECT COUNT(*) FROM Marriage')"
