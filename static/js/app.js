@@ -843,11 +843,6 @@ const App = {
 
   _renderMemberTable(members) {
     const tbody = document.querySelector('#member-table tbody');
-    // 后端已排序，若首条ID大于末条则反转（不手动排序，性能友好）
-    members = [...members];
-    if (members.length > 1 && (members[0].member_id || 0) > (members[members.length - 1].member_id || 0)) {
-      members.reverse();
-    }
     tbody.innerHTML = members.map(m => {
       const birth = (m.birth_date || '').substring(0, 10);
       const death = (m.death_date || '').substring(0, 10);
@@ -1128,32 +1123,42 @@ const App = {
           <canvas id="desc-canvas"></canvas>
         </div>`;
 
-      // 创建专属 TreeRenderer 实例
-      if (!this._descRenderer) {
-        this._descRenderer = Object.create(TreeRenderer);
-        this._descRenderer.canvas = null;
-        this._descRenderer.ctx = null;
-        this._descRenderer.nodes = [];
-        this._descRenderer.nodeMap = {};
-        this._descRenderer.roots = [];
-      }
+      // 每次创建新的渲染器实例（旧 canvas 已被 innerHTML 销毁，需要全新绑定）
+      this._descRenderer = Object.create(TreeRenderer);
+      this._descRenderer.canvas = null;
+      this._descRenderer.ctx = null;
+      this._descRenderer.nodes = [];
+      this._descRenderer.nodeMap = {};
+      this._descRenderer.roots = [];
+      this._descRenderer.viewX = 0;
+      this._descRenderer.viewY = 0;
+      this._descRenderer.zoom = 1.0;
+      this._descRenderer.dragging = false;
+      this._descRenderer.selectedNode = null;
+      this._descRenderer.hoveredNode = null;
+      this._descRenderer._eventsBound = false;  // 重置事件绑定标记（原型链上为 true）
 
       // 等一帧确保 canvas 在 DOM 中完成布局
       requestAnimationFrame(() => {
-        this._descRenderer.init('desc-canvas', (member) => {
-          this._showMemberDetailModal(member.member_id);
-        });
-        // 目标成员 + 所有后代一起传入，让树以目标为根
-        const allMembers = target.member_id ? [target, ...items] : items;
-        this._descRenderer.loadMembers(allMembers);
+        try {
+          this._descRenderer.init('desc-canvas', (member) => {
+            this._showMemberDetailModal(member.member_id);
+          });
+          // 目标成员 + 所有后代一起传入，让树以目标为根
+          const allMembers = target.member_id ? [target, ...items] : items;
+          this._descRenderer.loadMembers(allMembers);
 
-        // 绑定缩放按钮
-        el.querySelector('.desc-zoom-in')?.addEventListener('click', () => this._descRenderer.zoomIn());
-        el.querySelector('.desc-zoom-out')?.addEventListener('click', () => this._descRenderer.zoomOut());
-        el.querySelector('.desc-fit')?.addEventListener('click', () => this._descRenderer.fitView());
+          // 绑定缩放按钮
+          el.querySelector('.desc-zoom-in')?.addEventListener('click', () => this._descRenderer.zoomIn());
+          el.querySelector('.desc-zoom-out')?.addEventListener('click', () => this._descRenderer.zoomOut());
+          el.querySelector('.desc-fit')?.addEventListener('click', () => this._descRenderer.fitView());
 
-        // 绑定横向滑轨
-        HScrollbar.attach(this._descRenderer, '.desc-canvas-container');
+          // 绑定横向滑轨
+          HScrollbar.attach(this._descRenderer, '.desc-canvas-container');
+        } catch (err) {
+          console.error('后代树渲染失败:', err);
+          el.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:40px">渲染后代树失败：${err.message}</p>`;
+        }
       });
     } catch (e) {
       el.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:40px">查询失败：${e.message}</p>`;
