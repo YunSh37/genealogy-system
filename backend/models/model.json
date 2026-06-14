@@ -1,0 +1,41 @@
+{
+    "rdbms": "mysql",
+    "host": "127.0.0.1",
+    "port": 3306,
+    "dbname": "genealogy_db",
+    "schema": "public",
+    "user": "root",
+    "password": "123456",
+    "client_encoding": "utf8mb4",
+    "tables": [],
+    "convert": {
+      "enabled": false,
+      "items":[{
+          "table": "user",
+          "column": "password",
+          "method": {
+            "after_db_read": "decrypt_password",
+            "before_db_write": "encrypt_password"
+          },
+          "includes": [
+            "\"file_local_search_path.h\"","<file_in_global_search_path.h>"
+          ]
+      }]
+    },
+    "relationships": {
+        "enabled": false,
+        "items": []
+    },
+    "restful_api_controllers": {
+        "enabled": false,
+        "resource_uri": "/*",
+        "class_name": "Restful*Ctrl",
+        "filters": [],
+        "db_client": {
+            "name": "default",
+            "is_fast": false
+        },
+        "directory": "controllers",
+        "generate_base_only": false
+    }
+}
