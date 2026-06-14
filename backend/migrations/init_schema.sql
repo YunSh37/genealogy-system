@@ -112,7 +112,8 @@ CREATE INDEX idx_member_name ON Member(name);
 CREATE INDEX idx_member_ancestor_path ON Member(ancestor_path);
 
 -- 全文搜索索引（Phase 3：替代 LIKE '%keyword%'）
-ALTER TABLE Member ADD FULLTEXT INDEX ft_member_name (name);
+-- 中文需 ngram 分词器，否则默认空格分词对中文无效
+ALTER TABLE Member ADD FULLTEXT INDEX ft_member_name (name) WITH PARSER ngram;
 
 -- ============================================================
 -- 统计缓存表（Phase 3：替代 Redis 的内存缓存方案）
