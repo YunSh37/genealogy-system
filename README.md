@@ -256,7 +256,7 @@ LOAD DATA 导入时 `generation` 和 `ancestor_path` 列不在导入列表中，
 mysql -u root -p123456 genealogy_db < migrations/migration_fix_generations.sql
 ```
 
-> 预计耗时 30~60 秒。输出末尾显示 `max_gen: 30` 即表示修复成功。
+> 预计耗时 10~30 秒。输出末尾显示 `max_gen: 30` 即表示修复成功。
 
 ---
 

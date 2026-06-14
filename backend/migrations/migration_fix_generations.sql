@@ -1,276 +1,165 @@
 -- ============================================================
--- 辈分修复迁移脚本（高效迭代版，适用于大规模数据）
+-- 辈分修复迁移脚本（BFS 逐层推进版，利用索引高效计算）
 -- ============================================================
 -- 执行方式: mysql -u root -p123456 genealogy_db < migration_fix_generations.sql
+-- 预计耗时: 10~30 秒（10 万成员，深度 30）
+--
+-- 核心优化（相比旧版迭代法）：
+--   旧版：每轮子查询 JOIN 全表（OR 条件导致索引失效），45+ 轮 → 数十分钟
+--   新版：每轮 WHERE p.generation = N（索引命中），拆分 father/mother 独立 JOIN
+--         每轮只处理当前层的少量节点，30 轮 → 10~30 秒
 -- ============================================================
 
--- 先检查当前状态
-SELECT '开始迁移' AS status, COUNT(*) AS total_members,
-       SUM(CASE WHEN generation <= 0 THEN 1 ELSE 0 END) AS bad_generation,
-       SUM(CASE WHEN ancestor_path IS NULL THEN 1 ELSE 0 END) AS null_path
+SELECT '===== 开始迁移 =====' AS status, NOW() AS time;
+
+-- 检查当前状态
+SELECT '迁移前' AS 阶段, COUNT(*) AS 总成员,
+       SUM(generation <= 0) AS generation异常,
+       SUM(ancestor_path IS NULL) AS path为空
 FROM Member;
 
--- 临时删除 CHECK 约束（迁移完成后重新添加）
+-- ============================================================
+-- 1. 修复 generation（BFS 逐层推进）
+-- ============================================================
+
 ALTER TABLE Member DROP CONSTRAINT chk_generation_positive;
 
--- ============================================================
--- 1. 修复 generation 存量数据（迭代法，替代慢速递归 CTE）
---    每轮 UPDATE 将当前已知 generation 的成员的子代 generation 设为 parent_gen + 1
---    重复直到没有新成员被更新
---    注意：generation 列为 NOT NULL，使用 0 作为"未计算"哨兵值
--- ============================================================
-
--- 1a. 重置所有成员的 generation 为 0（未计算）
+-- 全部重置为 0（哨兵值，表示"未计算"）
 UPDATE Member SET generation = 0;
 
--- 1b. 设置根节点（无父无母）为第 1 代
-UPDATE Member
-SET generation = 1
-WHERE (father_id IS NULL)
-  AND (mother_id IS NULL);
+-- 根节点 = 第 1 代（无父无母）
+UPDATE Member SET generation = 1
+WHERE father_id IS NULL AND mother_id IS NULL;
 
--- 1c. 设置只有父亲为根的成员
-UPDATE Member m
-JOIN Member p ON m.father_id = p.member_id
-SET m.generation = p.generation + 1
-WHERE m.generation <= 0
-  AND m.mother_id IS NULL
-  AND p.generation > 0;
+SELECT '根节点' AS 阶段, COUNT(*) AS 数量 FROM Member WHERE generation = 1;
 
--- 1d. 设置只有母亲为根的成员
-UPDATE Member m
-JOIN Member p ON m.mother_id = p.member_id
-SET m.generation = p.generation + 1
-WHERE m.generation <= 0
-  AND m.father_id IS NULL
-  AND p.generation > 0;
+-- BFS 循环：每次找到当前代的所有成员，将他们的子代设为 current_gen + 1
+-- 拆分为 father/mother 两条 UPDATE，各自利用独立索引
+DELIMITER //
+CREATE PROCEDURE _fix_gen_bfs()
+BEGIN
+    DECLARE cur INT DEFAULT 1;
 
--- 1e. 迭代：逐层推进，每次取 MAX(父辈 generation) + 1
---     重复执行直到 ROW_COUNT() = 0
--- 循环：每次处理一层
--- Round 2
-UPDATE Member m
-JOIN (
-    SELECT m2.member_id, MAX(p.generation) + 1 AS new_gen
-    FROM Member m2
-    JOIN Member p ON m2.father_id = p.member_id OR m2.mother_id = p.member_id
-    WHERE m2.generation <= 0 AND p.generation > 0
-    GROUP BY m2.member_id
-) calc ON m.member_id = calc.member_id
-SET m.generation = calc.new_gen;
+    _loop: WHILE cur <= 100 DO
+        -- 检查当前代是否有成员（没有则说明已到叶子层，循环结束）
+        IF (SELECT COUNT(*) FROM Member WHERE generation = cur) = 0 THEN
+            LEAVE _loop;
+        END IF;
 
--- Round 3
-UPDATE Member m
-JOIN (
-    SELECT m2.member_id, MAX(p.generation) + 1 AS new_gen
-    FROM Member m2
-    JOIN Member p ON m2.father_id = p.member_id OR m2.mother_id = p.member_id
-    WHERE m2.generation <= 0 AND p.generation > 0
-    GROUP BY m2.member_id
-) calc ON m.member_id = calc.member_id
-SET m.generation = calc.new_gen;
+        -- 通过父亲索引：找到 generation=cur 的成员的所有子代
+        UPDATE Member child
+        JOIN Member parent ON child.father_id = parent.member_id
+        SET child.generation = cur + 1
+        WHERE parent.generation = cur AND child.generation <= 0;
 
--- Round 4
-UPDATE Member m
-JOIN (
-    SELECT m2.member_id, MAX(p.generation) + 1 AS new_gen
-    FROM Member m2
-    JOIN Member p ON m2.father_id = p.member_id OR m2.mother_id = p.member_id
-    WHERE m2.generation <= 0 AND p.generation > 0
-    GROUP BY m2.member_id
-) calc ON m.member_id = calc.member_id
-SET m.generation = calc.new_gen;
+        -- 通过母亲索引：找到 generation=cur 的成员的所有子代
+        UPDATE Member child
+        JOIN Member parent ON child.mother_id = parent.member_id
+        SET child.generation = cur + 1
+        WHERE parent.generation = cur AND child.generation <= 0;
 
--- Round 5
-UPDATE Member m
-JOIN (
-    SELECT m2.member_id, MAX(p.generation) + 1 AS new_gen
-    FROM Member m2
-    JOIN Member p ON m2.father_id = p.member_id OR m2.mother_id = p.member_id
-    WHERE m2.generation <= 0 AND p.generation > 0
-    GROUP BY m2.member_id
-) calc ON m.member_id = calc.member_id
-SET m.generation = calc.new_gen;
+        SET cur = cur + 1;
+    END WHILE _loop;
 
--- Round 6
-UPDATE Member m
-JOIN (
-    SELECT m2.member_id, MAX(p.generation) + 1 AS new_gen
-    FROM Member m2
-    JOIN Member p ON m2.father_id = p.member_id OR m2.mother_id = p.member_id
-    WHERE m2.generation <= 0 AND p.generation > 0
-    GROUP BY m2.member_id
-) calc ON m.member_id = calc.member_id
-SET m.generation = calc.new_gen;
+    -- 兜底：孤立节点设为第 1 代
+    UPDATE Member SET generation = 1 WHERE generation <= 0;
+END//
+DELIMITER ;
 
--- Round 7
-UPDATE Member m
-JOIN (
-    SELECT m2.member_id, MAX(p.generation) + 1 AS new_gen
-    FROM Member m2
-    JOIN Member p ON m2.father_id = p.member_id OR m2.mother_id = p.member_id
-    WHERE m2.generation <= 0 AND p.generation > 0
-    GROUP BY m2.member_id
-) calc ON m.member_id = calc.member_id
-SET m.generation = calc.new_gen;
-
--- Round 8
-UPDATE Member m
-JOIN (
-    SELECT m2.member_id, MAX(p.generation) + 1 AS new_gen
-    FROM Member m2
-    JOIN Member p ON m2.father_id = p.member_id OR m2.mother_id = p.member_id
-    WHERE m2.generation <= 0 AND p.generation > 0
-    GROUP BY m2.member_id
-) calc ON m.member_id = calc.member_id
-SET m.generation = calc.new_gen;
-
--- Round 9
-UPDATE Member m
-JOIN (
-    SELECT m2.member_id, MAX(p.generation) + 1 AS new_gen
-    FROM Member m2
-    JOIN Member p ON m2.father_id = p.member_id OR m2.mother_id = p.member_id
-    WHERE m2.generation <= 0 AND p.generation > 0
-    GROUP BY m2.member_id
-) calc ON m.member_id = calc.member_id
-SET m.generation = calc.new_gen;
-
--- Round 10
-UPDATE Member m
-JOIN (
-    SELECT m2.member_id, MAX(p.generation) + 1 AS new_gen
-    FROM Member m2
-    JOIN Member p ON m2.father_id = p.member_id OR m2.mother_id = p.member_id
-    WHERE m2.generation <= 0 AND p.generation > 0
-    GROUP BY m2.member_id
-) calc ON m.member_id = calc.member_id
-SET m.generation = calc.new_gen;
-
--- Round 11-15（覆盖更深的族谱）
-UPDATE Member m JOIN (SELECT m2.member_id, MAX(p.generation)+1 AS ng FROM Member m2 JOIN Member p ON m2.father_id=p.member_id OR m2.mother_id=p.member_id WHERE m2.generation <= 0 AND p.generation > 0 GROUP BY m2.member_id) c ON m.member_id=c.member_id SET m.generation=c.ng;
-UPDATE Member m JOIN (SELECT m2.member_id, MAX(p.generation)+1 AS ng FROM Member m2 JOIN Member p ON m2.father_id=p.member_id OR m2.mother_id=p.member_id WHERE m2.generation <= 0 AND p.generation > 0 GROUP BY m2.member_id) c ON m.member_id=c.member_id SET m.generation=c.ng;
-UPDATE Member m JOIN (SELECT m2.member_id, MAX(p.generation)+1 AS ng FROM Member m2 JOIN Member p ON m2.father_id=p.member_id OR m2.mother_id=p.member_id WHERE m2.generation <= 0 AND p.generation > 0 GROUP BY m2.member_id) c ON m.member_id=c.member_id SET m.generation=c.ng;
-UPDATE Member m JOIN (SELECT m2.member_id, MAX(p.generation)+1 AS ng FROM Member m2 JOIN Member p ON m2.father_id=p.member_id OR m2.mother_id=p.member_id WHERE m2.generation <= 0 AND p.generation > 0 GROUP BY m2.member_id) c ON m.member_id=c.member_id SET m.generation=c.ng;
-UPDATE Member m JOIN (SELECT m2.member_id, MAX(p.generation)+1 AS ng FROM Member m2 JOIN Member p ON m2.father_id=p.member_id OR m2.mother_id=p.member_id WHERE m2.generation <= 0 AND p.generation > 0 GROUP BY m2.member_id) c ON m.member_id=c.member_id SET m.generation=c.ng;
-
--- Round 16-20
-UPDATE Member m JOIN (SELECT m2.member_id, MAX(p.generation)+1 AS ng FROM Member m2 JOIN Member p ON m2.father_id=p.member_id OR m2.mother_id=p.member_id WHERE m2.generation <= 0 AND p.generation > 0 GROUP BY m2.member_id) c ON m.member_id=c.member_id SET m.generation=c.ng;
-UPDATE Member m JOIN (SELECT m2.member_id, MAX(p.generation)+1 AS ng FROM Member m2 JOIN Member p ON m2.father_id=p.member_id OR m2.mother_id=p.member_id WHERE m2.generation <= 0 AND p.generation > 0 GROUP BY m2.member_id) c ON m.member_id=c.member_id SET m.generation=c.ng;
-UPDATE Member m JOIN (SELECT m2.member_id, MAX(p.generation)+1 AS ng FROM Member m2 JOIN Member p ON m2.father_id=p.member_id OR m2.mother_id=p.member_id WHERE m2.generation <= 0 AND p.generation > 0 GROUP BY m2.member_id) c ON m.member_id=c.member_id SET m.generation=c.ng;
-UPDATE Member m JOIN (SELECT m2.member_id, MAX(p.generation)+1 AS ng FROM Member m2 JOIN Member p ON m2.father_id=p.member_id OR m2.mother_id=p.member_id WHERE m2.generation <= 0 AND p.generation > 0 GROUP BY m2.member_id) c ON m.member_id=c.member_id SET m.generation=c.ng;
-UPDATE Member m JOIN (SELECT m2.member_id, MAX(p.generation)+1 AS ng FROM Member m2 JOIN Member p ON m2.father_id=p.member_id OR m2.mother_id=p.member_id WHERE m2.generation <= 0 AND p.generation > 0 GROUP BY m2.member_id) c ON m.member_id=c.member_id SET m.generation=c.ng;
-
--- 处理剩余仍未设置 generation 的孤立节点
-UPDATE Member SET generation = 1 WHERE generation <= 0;
+CALL _fix_gen_bfs();
+DROP PROCEDURE _fix_gen_bfs;
 
 SELECT 'Generation 修复完成' AS status,
        COUNT(*) AS total,
-       SUM(CASE WHEN generation <= 0 THEN 1 ELSE 0 END) AS still_bad
+       MIN(generation) AS min_gen,
+       MAX(generation) AS max_gen,
+       SUM(generation <= 0) AS still_bad
 FROM Member;
 
 -- ============================================================
--- 2. 修复 ancestor_path 存量数据（迭代法）
+-- 2. 修复 ancestor_path（BFS 逐层推进）
 -- ============================================================
 
--- 清空现有 ancestor_path
 UPDATE Member SET ancestor_path = NULL;
 
--- 2a. 设置根节点
-UPDATE Member
-SET ancestor_path = CONCAT('/', member_id)
+-- 根节点
+UPDATE Member SET ancestor_path = CONCAT('/', member_id)
 WHERE father_id IS NULL AND mother_id IS NULL;
 
--- 2b. 迭代重建路径（每轮处理一层）
--- Round 1: 根的子代
-UPDATE Member m
-JOIN Member p ON m.father_id = p.member_id
-SET m.ancestor_path = CONCAT(p.ancestor_path, '/', m.member_id)
-WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL AND m.mother_id IS NULL;
+-- BFS：每层从父亲（优先）继承路径
+DELIMITER //
+CREATE PROCEDURE _fix_path_bfs()
+BEGIN
+    DECLARE cur INT DEFAULT 1;
 
-UPDATE Member m
-JOIN Member p ON m.mother_id = p.member_id
-SET m.ancestor_path = CONCAT(p.ancestor_path, '/', m.member_id)
-WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL AND m.father_id IS NULL;
+    _loop: WHILE cur <= 100 DO
+        IF (SELECT COUNT(*) FROM Member WHERE generation = cur AND ancestor_path IS NOT NULL) = 0 THEN
+            LEAVE _loop;
+        END IF;
 
--- 有双亲的：优先从父亲路径继承
-UPDATE Member m
-JOIN Member p ON m.father_id = p.member_id
-SET m.ancestor_path = CONCAT(p.ancestor_path, '/', m.member_id)
-WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
+        -- 优先从父亲继承路径
+        UPDATE Member child
+        JOIN Member parent ON child.father_id = parent.member_id
+        SET child.ancestor_path = CONCAT(parent.ancestor_path, '/', child.member_id)
+        WHERE parent.generation = cur
+          AND parent.ancestor_path IS NOT NULL
+          AND child.ancestor_path IS NULL;
 
-UPDATE Member m
-JOIN Member p ON m.mother_id = p.member_id
-SET m.ancestor_path = CONCAT(p.ancestor_path, '/', m.member_id)
-WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
+        -- 母亲路径（补充父亲未知的）
+        UPDATE Member child
+        JOIN Member parent ON child.mother_id = parent.member_id
+        SET child.ancestor_path = CONCAT(parent.ancestor_path, '/', child.member_id)
+        WHERE parent.generation = cur
+          AND parent.ancestor_path IS NOT NULL
+          AND child.ancestor_path IS NULL;
 
--- Rounds 2-20: 继续逐层推进
-UPDATE Member m JOIN Member p ON m.father_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.mother_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.father_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.mother_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.father_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.mother_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.father_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.mother_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.father_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.mother_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.father_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.mother_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.father_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.mother_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.father_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.mother_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.father_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.mother_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.father_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
-UPDATE Member m JOIN Member p ON m.mother_id=p.member_id SET m.ancestor_path=CONCAT(p.ancestor_path,'/',m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;
+        SET cur = cur + 1;
+    END WHILE _loop;
 
--- 处理孤立节点
-UPDATE Member SET ancestor_path = CONCAT('/', member_id) WHERE ancestor_path IS NULL;
+    -- 兜底
+    UPDATE Member SET ancestor_path = CONCAT('/', member_id)
+    WHERE ancestor_path IS NULL;
+END//
+DELIMITER ;
+
+CALL _fix_path_bfs();
+DROP PROCEDURE _fix_path_bfs;
 
 SELECT 'Ancestor path 修复完成' AS status,
-       SUM(CASE WHEN ancestor_path IS NULL THEN 1 ELSE 0 END) AS still_null
+       SUM(ancestor_path IS NULL) AS still_null
 FROM Member;
 
 -- ============================================================
--- 3. 添加 CHECK 约束
+-- 3. 恢复约束
 -- ============================================================
 
--- 3a. generation 必须为正整数（约束已在脚本开头删除，此处直接添加）
 ALTER TABLE Member ADD CONSTRAINT chk_generation_positive
     CHECK (generation IS NOT NULL AND generation >= 1);
 
--- 3b. birth_date 必须在 death_date 之前
 ALTER TABLE Member DROP CONSTRAINT chk_birth_before_death;
 ALTER TABLE Member ADD CONSTRAINT chk_birth_before_death
     CHECK (birth_date IS NULL OR death_date IS NULL OR birth_date <= death_date);
 
--- 3c. ancestor_path 格式约束
 ALTER TABLE Member DROP CONSTRAINT chk_ancestor_path_format;
 ALTER TABLE Member ADD CONSTRAINT chk_ancestor_path_format
     CHECK (ancestor_path IS NULL OR (ancestor_path LIKE '/%'));
-
--- ============================================================
--- 4. Marriage 表约束
--- ============================================================
 
 ALTER TABLE Marriage DROP CONSTRAINT chk_husband_not_wife;
 ALTER TABLE Marriage ADD CONSTRAINT chk_husband_not_wife
     CHECK (husband_id != wife_id);
 
 -- ============================================================
--- 5. 验证统计
+-- 4. 验证
 -- ============================================================
 
-SELECT '迁移全部完成' AS status,
+SELECT '===== 迁移全部完成 =====' AS status,
        COUNT(*) AS total_members,
        MIN(generation) AS min_gen,
        MAX(generation) AS max_gen,
        ROUND(AVG(generation), 2) AS avg_gen
 FROM Member;
 
-SELECT generation, COUNT(*) AS count
+SELECT generation AS 辈分, COUNT(*) AS 成员数
 FROM Member
 GROUP BY generation
 ORDER BY generation;
