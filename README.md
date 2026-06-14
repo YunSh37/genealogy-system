@@ -121,6 +121,13 @@ cd /mnt/d/shujuku/tmp/genealogy-system/backend
 ```
 
 > 后续所有操作都在 **WSL 终端**中执行，工作目录为 `backend/`。
+>
+> **⚠ WSL 用户注意**：如果项目是通过 Windows 端 git 克隆的，`.sh` 脚本文件可能丢失执行权限或换行符异常。在继续之前，执行以下命令修复：
+> ```bash
+> chmod +x *.sh
+> sed -i 's/\r$//' *.sh migrations/*.py migrations/*.sql
+> ```
+> 如果 `sed` 报错，安装 dos2unix：`sudo apt install -y dos2unix && dos2unix *.sh migrations/*.py migrations/*.sql`
 
 ---
 
@@ -394,7 +401,38 @@ unset MYSQL_PASSWORD
 ./import_data.sh migrations/test_data
 ```
 
-#### 3. 编译报错 "drogon/drogon.h: No such file or directory"
+#### 3. 运行 `.sh` 脚本报 "cannot execute: required file not found"
+
+```
+-bash: ./import_data.sh: cannot execute: required file not found
+```
+
+**原因**：脚本文件包含 Windows 换行符（CRLF），WSL 无法识别 `#!/bin/bash\r`。
+
+**解决**：
+```bash
+# 方法 A：用 sed 清除回车符
+sed -i 's/\r$//' *.sh migrations/*.py migrations/*.sql
+
+# 方法 B：安装 dos2unix 工具
+sudo apt install -y dos2unix
+dos2unix *.sh migrations/*.py migrations/*.sql
+```
+
+#### 4. 运行 `.sh` 脚本报 "Permission denied"
+
+```
+-bash: ./import_data.sh: Permission denied
+```
+
+**原因**：通过 Windows git 克隆的项目，Linux 执行权限丢失。
+
+**解决**：
+```bash
+chmod +x *.sh
+```
+
+#### 5. 编译报错 "drogon/drogon.h: No such file or directory"
 
 ```bash
 # Drogon 未安装或库路径未更新
@@ -403,7 +441,7 @@ sudo ldconfig
 ls /usr/local/include/drogon
 ```
 
-#### 4. 后端启动后立即退出，日志显示 "Access denied"
+#### 6. 后端启动后立即退出，日志显示 "Access denied"
 
 ```bash
 # config.json 中的密码与 MySQL root 密码不一致
