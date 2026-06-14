@@ -97,92 +97,209 @@ python server.py
 
 > **调试模式**：`python server.py --debug` 可开启 Flask 调试模式（代码修改后自动重启）。
 
-### 后端启动
+### 后端启动（WSL2 / Linux）
+
+> 以下流程假定你使用 **WSL2 (Ubuntu)**。纯 Linux 环境操作完全相同，跳过 WSL 特定步骤即可。
 
 **环境要求**：
-- Linux（推荐 Ubuntu 20.04+）/ WSL2
+- WSL2（推荐 Ubuntu 22.04）或原生 Linux
 - GCC 9+ 或 Clang 10+（需支持 C++17）
 - CMake 3.5+
-- [Drogon](https://github.com/drogonframework/drogon) Web 框架
-- jsoncpp
 - MySQL 8.0+
-- libmysqlclient-dev
+- Python 3.8+
 
-#### 1. 安装系统依赖
+---
+
+#### 第 0 步：进入 WSL 并定位到项目目录
 
 ```bash
-# Ubuntu/Debian
-sudo apt install build-essential cmake libjsoncpp-dev
+# 在 Windows 终端中进入 WSL
+wsl
 
-# 安装 Drogon（从源码编译）
+# 切换到项目后端目录（假设项目在 D:\shujuku\tmp\genealogy-system）
+cd /mnt/d/shujuku/tmp/genealogy-system/backend
+```
+
+> 后续所有操作都在 **WSL 终端**中执行，工作目录为 `backend/`。
+
+---
+
+#### 第 1 步：安装系统依赖（仅首次）
+
+```bash
+# 更新包列表
+sudo apt update
+
+# 安装编译工具链
+sudo apt install -y build-essential cmake libjsoncpp-dev
+
+# 安装 MySQL 客户端库
+sudo apt install -y libmysqlclient-dev
+
+# 安装 Drogon Web 框架（从源码编译）
+cd /tmp
 git clone https://github.com/drogonframework/drogon.git
 cd drogon && mkdir build && cd build
 cmake .. && make -j$(nproc) && sudo make install
+cd /tmp
 
-# 安装 MySQL 客户端库
-sudo apt install libmysqlclient-dev
+# 安装 Python 依赖（测试数据生成用，系统自带 Python3 即可，无需额外安装）
 ```
 
-#### 2. 初始化数据库
+> 以上依赖仅需安装一次，后续重启 WSL 无需重复。
+
+---
+
+#### 第 2 步：启动 MySQL 并创建数据库
 
 ```bash
+# 启动 MySQL 服务（WSL 中需手动启动）
+sudo service mysql start
+
 # 创建数据库
-mysql -u root -e "CREATE DATABASE genealogy_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-
-# 执行完整建表脚本
-mysql -u root genealogy_db < backend/migrations/init_schema.sql
-
-# 执行性能优化迁移
-mysql -u root genealogy_db < backend/migrations/migration_phase3.sql
-
-# 修复辈分数据（从 CSV 导入后需要）
-mysql -u root genealogy_db < backend/migrations/migration_fix_generations.sql
+sudo mysql -u root -e "CREATE DATABASE IF NOT EXISTS genealogy_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 ```
 
-#### 3. 生成测试数据（可选）
+---
+
+#### 第 3 步：执行建表脚本
 
 ```bash
-cd backend/migrations
-python generate_test_data.py
+# 回到项目 backend 目录（如果不是的话）
+cd /mnt/d/shujuku/tmp/genealogy-system/backend
+
+# 执行完整建表脚本（6 张表 + 索引 + CHECK 约束）
+sudo mysql -u root genealogy_db < migrations/init_schema.sql
+
+# 执行性能优化迁移（ancestor_path 物化路径 + 全文索引 + 统计缓存表）
+sudo mysql -u root genealogy_db < migrations/migration_phase3.sql
 ```
 
-默认生成 10 个族谱、10 万+ 成员、最大深度 30 代。可通过环境变量调整参数。
+---
 
-#### 4. 构建后端
+#### 第 4 步：生成测试数据
 
 ```bash
-cd backend
-mkdir build && cd build
+# 进入 migrations 目录
+cd migrations
+
+# 运行数据生成脚本（生成 10 个族谱、10 万+ 成员、最大深度 30 代）
+python3 generate_test_data.py
+
+# 脚本会在 migrations/data/ 目录下生成以下 CSV 文件：
+#   user.csv   genealogy.csv   member.csv   marriage.csv   genealogy_share.csv
+
+cd ..
+```
+
+---
+
+#### 第 5 步：导入数据到 MySQL
+
+```bash
+# 将生成的 CSV 文件导入数据库
+./import_data.sh migrations/data
+
+# 提示输入 MySQL 密码时，直接回车（WSL 中 sudo mysql 无需密码）
+```
+
+> 如果你有自己的 CSV 数据文件，将 `migrations/data` 替换为你的数据目录路径即可。
+
+---
+
+#### 第 6 步：编译后端程序
+
+```bash
+# 在 backend/ 目录下
+mkdir -p build && cd build
 cmake ..
 cmake --build .
 ```
 
-#### 5. 配置
+编译成功后会在 `build/` 目录下生成 `genealogy_system` 可执行文件。
 
-在 `backend/` 目录下创建 `config.json`（参考结构见 [后端代码实现简介.md](backend/后端代码实现简介.md)）。
+---
 
-#### 6. 启动
+#### 第 7 步：创建配置文件
 
 ```bash
-cd backend/build
-./genealogy_system
-# 服务启动在 http://localhost:8088
+# 回到 backend 目录
+cd /mnt/d/shujuku/tmp/genealogy-system/backend
+
+# 创建 config.json（将下面 JSON 中的密码改为你的实际密码）
+cat > config.json << 'EOF'
+{
+    "listeners": [
+        {
+            "address": "0.0.0.0",
+            "port": 8088
+        }
+    ],
+    "db_clients": [
+        {
+            "name": "default",
+            "rdbms": "mysql",
+            "host": "127.0.0.1",
+            "port": 3306,
+            "dbname": "genealogy_db",
+            "user": "root",
+            "password": "",
+            "client_encoding": "utf8mb4"
+        }
+    ],
+    "app": {
+        "number_of_threads": 4
+    }
+}
+EOF
 ```
 
-#### 7. 导入实际数据（可选）
+---
+
+#### 第 8 步：启动后端服务
 
 ```bash
-cd backend
+cd build
+./genealogy_system
+```
 
-# 先设置环境变量
-export MYSQL_HOST=127.0.0.1
-export MYSQL_PORT=3306
-export MYSQL_USER=root
-export MYSQL_PASSWORD=your_password
-export MYSQL_DATABASE=genealogy_db
+看到以下输出表示启动成功：
 
-# 导入 CSV 数据
-./import_data.sh /path/to/your/csv/files
+```
+INFO  - Listening on 0.0.0.0:8088
+```
+
+> 服务运行在 `http://localhost:8088`。在 Windows 浏览器中访问此地址即可。
+
+---
+
+#### 验证服务
+
+```bash
+# 在另一个 WSL 终端中测试
+curl http://localhost:8088/api/health
+# 返回: {"status":"ok"}
+
+curl http://localhost:8088/
+# 返回服务基本信息
+```
+
+---
+
+#### 完整流程速查
+
+```
+wsl                                                          # 进入 WSL
+cd /mnt/d/shujuku/tmp/genealogy-system/backend               # 定位到后端目录
+sudo service mysql start                                      # 启动 MySQL
+sudo mysql -u root -e "CREATE DATABASE IF NOT EXISTS genealogy_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+sudo mysql -u root genealogy_db < migrations/init_schema.sql  # 建表
+sudo mysql -u root genealogy_db < migrations/migration_phase3.sql  # 优化迁移
+cd migrations && python3 generate_test_data.py && cd ..       # 生成测试数据
+./import_data.sh migrations/data                              # 导入数据
+mkdir -p build && cd build && cmake .. && cmake --build .     # 编译
+cd .. && cat > config.json << 'EOF' ... EOF                   # 创建配置
+cd build && ./genealogy_system                                # 启动服务
 ```
 
 ## 性能基准
