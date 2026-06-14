@@ -248,7 +248,19 @@ export MYSQL_PASSWORD=123456
 
 ---
 
-#### 第 6 步：编译后端程序
+#### 第 6 步：修复辈分与物化路径 ★必须
+
+LOAD DATA 导入时 `generation` 和 `ancestor_path` 列不在导入列表中，默认值不准确。此脚本通过迭代法逐层计算所有成员的正确辈分和祖先路径。
+
+```bash
+mysql -u root -p123456 genealogy_db < migrations/migration_fix_generations.sql
+```
+
+> 预计耗时 30~60 秒。输出末尾显示 `max_gen: 30` 即表示修复成功。
+
+---
+
+#### 第 7 步：编译后端程序
 
 ```bash
 # 在 backend/ 目录下
@@ -261,7 +273,7 @@ cmake --build .
 
 ---
 
-#### 第 7 步：创建配置文件
+#### 第 8 步：创建配置文件
 
 ```bash
 # 回到 backend 目录
@@ -297,7 +309,7 @@ EOF
 
 ---
 
-#### 第 8 步：启动后端服务
+#### 第 9 步：启动后端服务
 
 ```bash
 cd build
@@ -346,6 +358,7 @@ mysql -u root -p123456 genealogy_db < migrations/migration_phase3.sql  # 迁移
 # --- 数据 ---
 cd migrations && python3 generate_test_data.py && cd ..       # 生成数据
 export MYSQL_PASSWORD=123456 && ./import_data.sh migrations/test_data  # 导入
+mysql -u root -p123456 genealogy_db < migrations/migration_fix_generations.sql  # ★辈分修复
 # --- 编译运行 ---
 mkdir -p build && cd build && cmake .. && cmake --build .     # 编译
 cd .. && cat > config.json << 'EOF'                           # 配置

@@ -116,27 +116,13 @@ echo ">>> 导入 GenealogyShare ..."
 $M -e "LOAD DATA LOCAL INFILE '$D/genealogy_share.csv' INTO TABLE GenealogyShare CHARACTER SET utf8mb4 FIELDS TERMINATED BY ',' ENCLOSED BY '\"' LINES TERMINATED BY '\n' IGNORE 1 ROWS (share_id, genealogy_id, user_id, permission, created_at);"
 echo "  共享: $($M -N -e 'SELECT COUNT(*) FROM GenealogyShare')"
 
-# ---- 后处理 ----
-echo ""
-echo "=== 后处理: 计算 generation（辈分） & ancestor_path（物化路径） ==="
-
-# ★ 关键：LOAD DATA 不含 generation 列，所有成员默认为 1
-#   generation 列有 NOT NULL + CHECK(generation>=1) 约束，不能设 NULL 或 0
-#   直接用 CTE 覆盖所有成员的正确辈分，不加 WHERE 过滤
-$M -e "WITH RECURSIVE gen_calc AS (SELECT member_id, 1 as gen FROM Member WHERE father_id IS NULL AND mother_id IS NULL UNION ALL SELECT m.member_id, gc.gen + 1 FROM Member m JOIN gen_calc gc ON (m.father_id = gc.member_id OR m.mother_id = gc.member_id)) UPDATE Member m INNER JOIN gen_calc gc ON m.member_id = gc.member_id SET m.generation = gc.gen;" 2>/dev/null || true
-echo "  最大辈分: 第 $($M -N -e 'SELECT MAX(generation) FROM Member') 代"
-
-$M -e "UPDATE Member SET ancestor_path = CONCAT('/', member_id) WHERE father_id IS NULL AND mother_id IS NULL;"
-for i in $(seq 1 30); do
-    $M -e "UPDATE Member m JOIN Member p ON m.father_id = p.member_id SET m.ancestor_path = CONCAT(p.ancestor_path, '/', m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;" 2>/dev/null
-    $M -e "UPDATE Member m JOIN Member p ON m.mother_id = p.member_id SET m.ancestor_path = CONCAT(p.ancestor_path, '/', m.member_id) WHERE m.ancestor_path IS NULL AND p.ancestor_path IS NOT NULL;" 2>/dev/null
-    remain=$($M -N -e "SELECT COUNT(*) FROM Member WHERE ancestor_path IS NULL" 2>/dev/null || echo 0)
-    [ "$remain" -eq 0 ] && break
-done
-$M -e "UPDATE Member SET ancestor_path = CONCAT('/', member_id) WHERE ancestor_path IS NULL;"
-
 echo ""
 echo "=========================================="
-echo "  导入完成！"
+echo "  数据导入完成！"
 echo "=========================================="
+echo ""
+echo "★★★ 下一步 ★★★"
+echo "请执行辈分修复迁移脚本（修复 generation + ancestor_path）："
+echo "  cd /mnt/d/tmp/genealogy-system/backend"
+echo "  mysql -u root -p123456 genealogy_db < migrations/migration_fix_generations.sql"
 $M -t -e "SELECT 'User' AS 表, COUNT(*) AS 数量 FROM User UNION ALL SELECT 'Genealogy', COUNT(*) FROM Genealogy UNION ALL SELECT 'Member', COUNT(*) FROM Member UNION ALL SELECT 'Marriage', COUNT(*) FROM Marriage UNION ALL SELECT 'GenealogyShare', COUNT(*) FROM GenealogyShare;"
