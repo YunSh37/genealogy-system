@@ -1493,8 +1493,8 @@ _openFullscreen(targetId, allMembers, sourceCanvasId, sourceContainer) {
       const path2 = data.path_to_member2 || data.path2 || [];
       const ancestor = data.common_ancestor || data.common_relative || {};
 
-      // 过滤：同辈只保留男性
-      const filterByGen = (path) => {
+      // 过滤：中间节点同辈只保留男性，端点节点（被查询人）必须保留不可替换
+      const filterByGen = (path, endpointId) => {
         const byGen = {};
         path.forEach(n => {
           const gen = n.generation ?? 0;
@@ -1504,14 +1504,21 @@ _openFullscreen(targetId, allMembers, sourceCanvasId, sourceContainer) {
         const result = [];
         Object.keys(byGen).sort((a, b) => +a - +b).forEach(gen => {
           const group = byGen[gen];
-          const male = group.find(n => n.gender === 'male');
-          result.push(male || group[0]);
+          // 端点节点优先保留（即使女性也不可被配偶替换）
+          const endpoint = group.find(n => n.member_id === endpointId);
+          if (endpoint) {
+            result.push(endpoint);
+          } else {
+            // 中间节点：同辈优先保留男性
+            const male = group.find(n => n.gender === 'male');
+            result.push(male || group[0]);
+          }
         });
         return result;
       };
 
-      const fp1 = filterByGen(path1);
-      const fp2 = filterByGen(path2);
+      const fp1 = filterByGen(path1, id1);
+      const fp2 = filterByGen(path2, id2);
 
       // 兼容旧格式：如果 path 是从 leaf 到 root 的顺序，需要反转
       const p1Ordered = fp1.length >= 2 && (fp1[0].generation ?? 0) > (fp1[fp1.length - 1].generation ?? 0)
