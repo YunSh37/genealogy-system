@@ -121,10 +121,9 @@ echo ""
 echo "=== 后处理: 计算 generation（辈分） & ancestor_path（物化路径） ==="
 
 # ★ 关键：LOAD DATA 不含 generation 列，所有成员默认为 1
-#   必须先置 NULL，递归 CTE 的 WHERE generation IS NULL 才能命中
-$M -e "UPDATE Member SET generation = NULL;"
-$M -e "UPDATE Member SET generation = 1 WHERE father_id IS NULL AND mother_id IS NULL;"
-$M -e "WITH RECURSIVE gen_calc AS (SELECT member_id, 1 as gen FROM Member WHERE father_id IS NULL AND mother_id IS NULL UNION ALL SELECT m.member_id, gc.gen + 1 FROM Member m JOIN gen_calc gc ON (m.father_id = gc.member_id OR m.mother_id = gc.member_id)) UPDATE Member m INNER JOIN gen_calc gc ON m.member_id = gc.member_id SET m.generation = gc.gen WHERE m.generation IS NULL;" 2>/dev/null || true
+#   generation 列有 NOT NULL + CHECK(generation>=1) 约束，不能设 NULL 或 0
+#   直接用 CTE 覆盖所有成员的正确辈分，不加 WHERE 过滤
+$M -e "WITH RECURSIVE gen_calc AS (SELECT member_id, 1 as gen FROM Member WHERE father_id IS NULL AND mother_id IS NULL UNION ALL SELECT m.member_id, gc.gen + 1 FROM Member m JOIN gen_calc gc ON (m.father_id = gc.member_id OR m.mother_id = gc.member_id)) UPDATE Member m INNER JOIN gen_calc gc ON m.member_id = gc.member_id SET m.generation = gc.gen;" 2>/dev/null || true
 echo "  最大辈分: 第 $($M -N -e 'SELECT MAX(generation) FROM Member') 代"
 
 $M -e "UPDATE Member SET ancestor_path = CONCAT('/', member_id) WHERE father_id IS NULL AND mother_id IS NULL;"
