@@ -285,6 +285,7 @@ const App = {
   memberSearching: false,
   memberKeyword: '',
   _loading: false,
+  _treeCache: null,  // 族谱树缓存：{ genealogyId, targetId, allMembers, memberIdInput, depth }
 
   // ---- 加载状态 ----
   _setLoading(el, loading) {
@@ -328,6 +329,7 @@ const App = {
     this.memberSearching = false;
     this.memberKeyword = '';
     this._loading = false;
+    this._treeCache = null;
 
     // 清空侧边栏信息
     document.getElementById('sidebar-genealogy-name').textContent = '';
@@ -490,12 +492,14 @@ const App = {
     document.getElementById('tree-zoom-out').addEventListener('click', () => TreeRenderer.zoomOut());
     document.getElementById('tree-fit').addEventListener('click', () => TreeRenderer.fitView());
     document.getElementById('tree-reset').addEventListener('click', () => TreeRenderer.resetView());
-    document.getElementById('tree-load').addEventListener('click', () => this._loadFamilyTree());
+    document.getElementById('tree-expand-all').addEventListener('click', () => TreeRenderer.expandAllNodes());
+    document.getElementById('tree-fullscreen').addEventListener('click', () => this._openFullscreen());
+    document.getElementById('tree-load').addEventListener('click', () => this._loadFamilyTree(true));
     document.getElementById('tree-depth').addEventListener('keydown', e => {
-      if (e.key === 'Enter') this._loadFamilyTree();
+      if (e.key === 'Enter') this._loadFamilyTree(true);
     });
     document.getElementById('tree-member-id').addEventListener('keydown', e => {
-      if (e.key === 'Enter') this._loadFamilyTree();
+      if (e.key === 'Enter') this._loadFamilyTree(true);
     });
 
     // 成员管理
@@ -796,96 +800,235 @@ const App = {
   },
 
   // ==================== 族谱树 ====================
-  async _loadFamilyTree() {
+  async _loadFamilyTree(forceReload = false) {
     if (!this.currentGenealogyId) return;
     const container = document.querySelector('.tree-container');
     const depth = parseInt(document.getElementById('tree-depth')?.value) || 5;
     const inputMemberId = parseInt(document.getElementById('tree-member-id')?.value) || 0;
+
+    // ---- 缓存命中：相同族谱 + 相同参数 + 非强制刷新 ----
+    if (!forceReload && this._treeCache &&
+        this._treeCache.genealogyId === this.currentGenealogyId &&
+        this._treeCache.memberIdInput === inputMemberId &&
+        this._treeCache.depth === depth) {
+      const existingCanvas = container.querySelector('canvas');
+      if (existingCanvas && TreeRenderer.canvas === existingCanvas) {
+        return; // 完全命中：画布和渲染器都就绪，切回瞬时显示
+      }
+      // 部分命中：数据在但渲染器已被其他模块销毁（如后代查询调了 destroy()）
+      // 用缓存数据重建画布，跳过 API 调用
+      if (this._treeCache.allMembers && this._treeCache.allMembers.length > 0) {
+        this._renderFamilyTree(this._treeCache.targetId, this._treeCache.allMembers, container, inputMemberId, depth);
+        return;
+      }
+    }
+
+    // 显示加载中
+    container.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;min-height:300px;color:#999;gap:12px"><span class="spinner"></span><span>加载族谱树中...</span></div>';
+
     try {
-      let ancestorId;
+      let targetId, allMembers;
 
       if (inputMemberId) {
-        // 用户指定了成员 ID，直接使用
-        ancestorId = inputMemberId;
+        // ---- 用户指定成员 ID：family-tree 接口查完整上下文（祖先 + 自己 + 后代）----
+        targetId = inputMemberId;
+        const treeData = await API.getFamilyTree(inputMemberId, depth);
+        const seenIds = new Set();
+        allMembers = [];
+        (treeData.ancestors || []).forEach(a => {
+          if (a.member_id && !seenIds.has(a.member_id)) { allMembers.push(a); seenIds.add(a.member_id); }
+        });
+        const target = treeData.target_member;
+        if (target && target.member_id && !seenIds.has(target.member_id)) { allMembers.push(target); seenIds.add(target.member_id); }
+        (treeData.descendants || []).forEach(d => {
+          if (d.member_id && !seenIds.has(d.member_id)) { allMembers.push(d); seenIds.add(d.member_id); }
+        });
       } else {
-        // 未指定时自动查找辈分最小的男性（先祖）
+        // ---- 默认：智能查找族谱根节点，查后代树 ----
         const membersData = await API.getAllMembers(this.currentGenealogyId);
         const members = membersData.members || [];
         if (members.length === 0) {
           container.innerHTML = '<p style="text-align:center;color:#999;padding:60px">暂无成员数据，请先添加成员</p>';
           return;
         }
-        let ancestor = null;
-        let minGen = Infinity;
+
+        // 构建"被引为父母"集合（有子女的成员 ID）
+        const parentSet = new Set();
         members.forEach(m => {
-          const gen = m.generation ?? 1;
-          if (gen < minGen) {
-            minGen = gen;
-            ancestor = m;
-          } else if (gen === minGen && ancestor && m.gender === 'male' && ancestor.gender !== 'male') {
-            ancestor = m;
-          }
+          if (m.father_id) parentSet.add(m.father_id);
+          if (m.mother_id) parentSet.add(m.mother_id);
         });
-        if (!ancestor) {
-          container.innerHTML = '<p style="text-align:center;color:#999;padding:60px">未找到可用成员</p>';
-          return;
+
+        // 构建成员 ID → 成员 快速查找表
+        const memberMap = {};
+        members.forEach(m => { memberMap[m.member_id] = m; });
+
+        /**
+         * 根节点候选排序键：
+         * 优先级：无父母 > 有父母，辈分小 > 辈分大，ID 小 > ID 大
+         */
+        const calcPriority = (m) => {
+          const hasParentInGenealogy = (m.father_id && memberMap[m.father_id])
+                                    || (m.mother_id && memberMap[m.mother_id]);
+          const gen = m.generation ?? 99;
+          // hasParentBit: 无父母=0（优先），有父母=1
+          const hasParentBit = hasParentInGenealogy ? 1 : 0;
+          return (hasParentBit * 1000000) + (gen * 10000) + (m.member_id % 10000);
+        };
+
+        // 优先从"有子女"的成员中选根
+        const candidates = members.filter(m => parentSet.has(m.member_id));
+        let root = null;
+        if (candidates.length > 0) {
+          root = candidates.reduce((best, m) =>
+            calcPriority(m) < calcPriority(best) ? m : best
+          );
         }
-        ancestorId = ancestor.member_id;
+        // 兜底：取 member_id 最小的成员
+        if (!root) {
+          root = members.reduce((best, m) => m.member_id < best.member_id ? m : best);
+        }
+
+        targetId = root.member_id;
+        const descData = await API.getDescendants(targetId, depth);
+        const t = descData.target_member || {};
+        const items = descData.descendants || [];
+        allMembers = t.member_id ? [t, ...items] : items;
       }
 
-      // 以指定成员为中心，按深度加载族谱树
-      const treeData = await API.getFamilyTree(ancestorId, depth);
-
-      // 拼接所有成员：ancestors（祖先路径）+ target_member + descendants（后代树）
-      const seenIds = new Set();
-      const allMembers = [];
-
-      // 添加祖先路径（从根节点到目标成员的父/母）
-      (treeData.ancestors || []).forEach(a => {
-        if (a.member_id && !seenIds.has(a.member_id)) {
-          allMembers.push(a);
-          seenIds.add(a.member_id);
-        }
-      });
-
-      // 添加目标成员
-      const target = treeData.target_member;
-      if (target && target.member_id && !seenIds.has(target.member_id)) {
-        allMembers.push(target);
-        seenIds.add(target.member_id);
-      }
-
-      // 添加后代树
-      (treeData.descendants || []).forEach(d => {
-        if (d.member_id && !seenIds.has(d.member_id)) {
-          allMembers.push(d);
-          seenIds.add(d.member_id);
-        }
-      });
-
-      if (allMembers.length === 0) {
+      if (!allMembers || allMembers.length === 0) {
         container.innerHTML = '<p style="text-align:center;color:#999;padding:60px">暂无族谱树数据</p>';
         return;
       }
 
-      // 复用已有 canvas，不重复创建（避免事件监听器累积）
-      if (!container.querySelector('#tree-canvas')) {
-        container.innerHTML = '<canvas id="tree-canvas"></canvas>';
-      }
-      // 等一帧确保 canvas 布局完成后再初始化和渲染
-      requestAnimationFrame(() => {
-        TreeRenderer.init('tree-canvas', (member) => {
-          this._showMemberDetailModal(member.member_id);
-        });
-        TreeRenderer.highlightedIds = new Set([ancestorId]);
-        TreeRenderer.loadMembers(allMembers);
-
-        // 绑定横向滑轨
-        HScrollbar.attach(TreeRenderer, '.tree-container');
-      });
+      this._renderFamilyTree(targetId, allMembers, container, inputMemberId, depth);
     } catch (e) {
       container.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:60px">加载族谱树失败：${e.message}</p>`;
     }
+  },
+
+  // 族谱树渲染（提取为独立方法，供缓存重建和首次加载共用）
+  _renderFamilyTree(targetId, allMembers, container, inputMemberId, depth) {
+    // 清理旧渲染器状态，创建新 canvas
+    TreeRenderer.destroy();
+    container.innerHTML = '<canvas id="tree-canvas"></canvas>';
+
+    // 双重 rAF：确保 DOM 布局完成后再初始化（父容器从 display:none 切换后需要额外帧）
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        TreeRenderer.init('tree-canvas',
+          (member) => { this._showMemberDetailModal(member.member_id); },
+          (member) => { TreeRenderer.toggleCollapse(member.member_id); }
+        );
+        TreeRenderer.highlightedIds = new Set([targetId]);
+        TreeRenderer.loadMembers(allMembers);
+
+        HScrollbar.attach(TreeRenderer, '.tree-container');
+
+        this._treeTargetId = targetId;
+        this._treeAllMembers = allMembers;
+
+        // 更新缓存（下次切回不重新加载）
+        this._treeCache = {
+          genealogyId: this.currentGenealogyId,
+          targetId,
+          allMembers,
+          memberIdInput: inputMemberId,
+          depth,
+        };
+      });
+    });
+  },
+
+  // ==================== 全屏树模式 ====================
+_openFullscreen(targetId, allMembers, sourceCanvasId, sourceContainer) {
+    // 无参调用时使用上次族谱树加载的数据
+    if (!targetId || !allMembers) {
+      targetId = this._treeTargetId;
+      allMembers = this._treeAllMembers;
+      sourceCanvasId = 'tree-canvas';
+      sourceContainer = '.tree-container';
+    }
+    if (!targetId || !allMembers || allMembers.length === 0) {
+      this._toast('请先加载族谱树数据', 'error');
+      return;
+    }
+
+    // 记录来源画布，关闭时恢复
+    this._fsSource = {
+      targetId, allMembers,
+      canvasId: sourceCanvasId || 'tree-canvas',
+      container: sourceContainer || '.tree-container',
+    };
+
+    const overlay = document.getElementById('tree-fullscreen-overlay');
+    overlay.style.display = 'flex';
+
+    TreeRenderer.destroy();
+    TreeRenderer.nodes = [];
+    TreeRenderer.nodeMap = {};
+    TreeRenderer.roots = [];
+    TreeRenderer.viewX = 0;
+    TreeRenderer.viewY = 0;
+    TreeRenderer.zoom = 1.0;
+    TreeRenderer.selectedNode = null;
+    TreeRenderer.hoveredNode = null;
+    TreeRenderer.highlightedIds = new Set([targetId]);
+
+    requestAnimationFrame(() => {
+      TreeRenderer.init('fs-tree-canvas',
+        (member) => this._showMemberDetailModal(member.member_id),
+        (member) => TreeRenderer.toggleCollapse(member.member_id)
+      );
+      TreeRenderer.loadMembers(allMembers);
+
+      document.getElementById('fs-zoom-in').onclick = () => TreeRenderer.zoomIn();
+      document.getElementById('fs-zoom-out').onclick = () => TreeRenderer.zoomOut();
+      document.getElementById('fs-fit').onclick = () => TreeRenderer.fitView();
+      document.getElementById('fs-reset').onclick = () => TreeRenderer.resetView();
+      document.getElementById('fs-expand-all').onclick = () => TreeRenderer.expandAllNodes();
+      document.getElementById('fs-close').onclick = () => this._closeFullscreen();
+
+      this._fsEscHandler = (e) => {
+        if (e.key === 'Escape') this._closeFullscreen();
+      };
+      document.addEventListener('keydown', this._fsEscHandler);
+    });
+  },
+
+  _closeFullscreen() {
+    const overlay = document.getElementById('tree-fullscreen-overlay');
+    overlay.style.display = 'none';
+
+    if (this._fsEscHandler) {
+      document.removeEventListener('keydown', this._fsEscHandler);
+      this._fsEscHandler = null;
+    }
+
+    const src = this._fsSource;
+    if (!src) return;
+
+    TreeRenderer.destroy();
+    TreeRenderer.nodes = [];
+    TreeRenderer.nodeMap = {};
+    TreeRenderer.roots = [];
+    TreeRenderer.viewX = 0;
+    TreeRenderer.viewY = 0;
+    TreeRenderer.zoom = 1.0;
+    TreeRenderer.selectedNode = null;
+    TreeRenderer.hoveredNode = null;
+    TreeRenderer.highlightedIds = new Set([src.targetId]);
+
+    requestAnimationFrame(() => {
+      TreeRenderer.init(src.canvasId,
+        (member) => this._showMemberDetailModal(member.member_id),
+        (member) => TreeRenderer.toggleCollapse(member.member_id)
+      );
+      TreeRenderer.loadMembers(src.allMembers);
+      HScrollbar.attach(TreeRenderer, src.container);
+    });
+
+    this._fsSource = null;
   },
 
   // ==================== 成员管理 ====================
@@ -1013,7 +1156,7 @@ const App = {
       }
       this._loadMembers();
       // 如果正在显示族谱树，也刷新
-      if (this.currentPage === 'family-tree') this._loadFamilyTree();
+      if (this.currentPage === 'family-tree') this._loadFamilyTree(true);
     });
 
     // 如果是编辑，预填数据
@@ -1037,7 +1180,7 @@ const App = {
       await API.deleteMember(memberId);
       this._toast('删除成功！', 'success');
       this._loadMembers();
-      if (this.currentPage === 'family-tree') this._loadFamilyTree();
+      if (this.currentPage === 'family-tree') this._loadFamilyTree(true);
     } catch (e) {
       this._toast('删除失败：' + e.message, 'error');
     }
@@ -1134,58 +1277,33 @@ const App = {
         filtered.push(target);
       }
 
-      // 计算 S 形布局
-      const containerW = el.clientWidth - 32;
-      const cardW = 150;
-      const cardGap = 16;
-      const perRow = Math.max(1, Math.floor((containerW + cardGap) / (cardW + cardGap)));
-
-      // 拆分为行（蛇形：奇数行 RTL，偶数行 LTR）
-      const rows = [];
-      for (let i = 0; i < filtered.length; i += perRow) {
-        rows.push(filtered.slice(i, i + perRow));
-      }
-
-      // 渲染每行
-      const rowHtml = rows.map((row, ri) => {
-        const isRTL = ri % 2 === 1;
-        const dir = isRTL ? 'rtl' : 'ltr';
-        const isPartial = row.length < perRow;
-        const partialClass = isPartial ? ' anc-snake-partial' : '';
-        const items = isRTL ? [...row].reverse() : row;
+      // 渲染垂直时间线布局（简洁可靠，任意深度都不会出错）
+      const cardsHtml = filtered.map((a, idx) => {
+        const isTarget = a.member_id === target.member_id;
+        const genColor = a.gender === 'female' ? 'var(--color-female)' : 'var(--color-male)';
+        const relLabel = isTarget ? '查询目标' : (a.gender === 'female' ? '母亲' : '父亲');
+        const hlClass = isTarget ? ' anc-chain-target' : '';
+        const arrow = idx < filtered.length - 1
+          ? `<div class="anc-chain-arrow"><span style="color:${genColor};font-size:18px">↓</span></div>`
+          : '';
         return `
-          <div class="anc-snake-row anc-snake-${dir}${partialClass}">
-            ${items.map((a, i) => {
-              const genColor = a.gender === 'female' ? 'var(--color-female)' : 'var(--color-male)';
-              const arrow = (i < items.length - 1)
-                ? `<div class="anc-snake-arrow">${isRTL ? '←' : '→'}</div>`
-                : '';
-              const isTarget = a.member_id === target.member_id;
-              const highlightClass = isTarget ? ' anc-snake-target' : '';
-              // 性别决定父亲/母亲标签
-              const relLabel = isTarget
-                ? '本人'
-                : (a.gender === 'female' ? '母亲' : '父亲');
-              return `
-                <div class="anc-snake-card${highlightClass}" data-member-id="${a.member_id || ''}" style="border-top:3px solid ${isTarget ? '#E6A817' : genColor};cursor:pointer">
-                  <div class="anc-snake-name">${a.name || ''}</div>
-                  <div class="anc-snake-meta">第${a.generation ?? '?'}代 · ${relLabel}</div>
-                  <div class="anc-snake-life">${(a.birth_date || '').substring(0, 10)}</div>
-                </div>
-                ${arrow}`;
-            }).join('')}
+          <div class="anc-chain-card${hlClass}" data-member-id="${a.member_id || ''}"
+               style="border-left:4px solid ${isTarget ? '#E6A817' : genColor}">
+            <div class="anc-chain-gen">第${a.generation ?? '?'}代</div>
+            <div class="anc-chain-name">${a.name || ''}</div>
+            <div class="anc-chain-meta">${relLabel} · ${(a.birth_date || '').substring(0, 10) || '—'}</div>
           </div>
-          ${ri < rows.length - 1 ? '<div class="anc-snake-connector">↧</div>' : ''}`;
+          ${arrow}`;
       }).join('');
 
       el.innerHTML = `
         <div style="margin-bottom:12px;font-size:13px;color:var(--color-text-light)">
           <strong>查询目标：</strong>${target.name || ''} (ID:${memberId}) · ${filtered.length} 人 · 深度 ${depth}
         </div>
-        <div class="anc-snake-container">${rowHtml}</div>`;
+        <div class="anc-chain-container">${cardsHtml}</div>`;
 
       // 绑定祖先卡片点击事件
-      el.querySelectorAll('.anc-snake-card[data-member-id]').forEach(card => {
+      el.querySelectorAll('.anc-chain-card[data-member-id]').forEach(card => {
         card.addEventListener('click', () => {
           const mid = parseInt(card.dataset.memberId);
           if (mid) this._showMemberDetailModal(mid);
@@ -1226,45 +1344,46 @@ const App = {
           <button class="btn btn-sm desc-zoom-out">🔍-</button>
           <button class="btn btn-sm desc-fit">适应</button>
           <button class="btn btn-sm desc-reset">重置</button>
+          <button class="btn btn-sm desc-expand-all" title="一键展开全部">📖</button>
+          <button class="btn btn-sm desc-fullscreen" title="全屏展开">⛶</button>
         </div>
         <div class="desc-canvas-container">
           <canvas id="desc-canvas"></canvas>
         </div>`;
 
+      // 保存后代数据，供全屏模式使用
+      const allMembers = target.member_id ? [target, ...items] : items;
+
       // 照搬族谱树模式：直接使用 TreeRenderer，每次 destroy + init
       TreeRenderer.destroy();
-      TreeRenderer.nodes = [];
-      TreeRenderer.nodeMap = {};
-      TreeRenderer.roots = [];
-      TreeRenderer.viewX = 0;
-      TreeRenderer.viewY = 0;
-      TreeRenderer.zoom = 1.0;
-      TreeRenderer.selectedNode = null;
-      TreeRenderer.hoveredNode = null;
       TreeRenderer.highlightedIds = new Set([memberId]);
 
-      // 等一帧确保 canvas 在 DOM 中完成布局
+      // 双重 rAF 确保 canvas 布局完成
       requestAnimationFrame(() => {
-        try {
-          TreeRenderer.init('desc-canvas', (member) => {
-            this._showMemberDetailModal(member.member_id);
-          });
-          // 目标成员 + 所有后代一起传入，让树以目标为根
-          const allMembers = target.member_id ? [target, ...items] : items;
-          TreeRenderer.loadMembers(allMembers);
+        requestAnimationFrame(() => {
+          try {
+            TreeRenderer.init('desc-canvas',
+              (member) => { this._showMemberDetailModal(member.member_id); },
+              (member) => { TreeRenderer.toggleCollapse(member.member_id); }
+            );
+            TreeRenderer.loadMembers(allMembers);
 
-          // 绑定缩放按钮（照搬族谱树按钮模式）
+          // 绑定工具栏按钮
           el.querySelector('.desc-zoom-in')?.addEventListener('click', () => TreeRenderer.zoomIn());
           el.querySelector('.desc-zoom-out')?.addEventListener('click', () => TreeRenderer.zoomOut());
           el.querySelector('.desc-fit')?.addEventListener('click', () => TreeRenderer.fitView());
           el.querySelector('.desc-reset')?.addEventListener('click', () => TreeRenderer.resetView());
+          el.querySelector('.desc-expand-all')?.addEventListener('click', () => TreeRenderer.expandAllNodes());
+          el.querySelector('.desc-fullscreen')?.addEventListener('click',
+            () => this._openFullscreen(memberId, allMembers, 'desc-canvas', '.desc-canvas-container'));
 
           // 绑定横向滑轨
           HScrollbar.attach(TreeRenderer, '.desc-canvas-container');
-        } catch (err) {
-          console.error('后代树渲染失败:', err);
-          el.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:40px">渲染后代树失败：${err.message}</p>`;
-        }
+          } catch (err) {
+            console.error('后代树渲染失败:', err);
+            el.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:40px">渲染后代树失败：${err.message}</p>`;
+          }
+        });
       });
     } catch (e) {
       el.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:40px">查询失败：${e.message}</p>`;

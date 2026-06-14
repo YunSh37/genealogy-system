@@ -1,76 +1,92 @@
 # 族谱管理系统
 
-基于 Flask + Drogon(C++) 的族谱管理系统，支持 10 万+ 成员记录的高效管理。
+一个基于 Web 的族谱管理平台，支持多族谱切换、成员管理、血缘关系查询与可视化展示。
 
 ## 项目结构
 
 ```
-genealogy_frontend/          # ← 当前目录
-├── server.py                # Flask 代理服务器（反向代理 → Drogon 后端）
-├── requirements.txt         # Python 依赖
+./
+├── server.py                # Flask 代理服务器（反向代理 → 后端 API）
+├── config.json              # 运行时配置文件
+├── requirements.txt         # Python 依赖清单
 ├── templates/
-│   └── index.html           # SPA 主页面
+│   └── index.html           # SPA 单页应用主页面
 ├── static/
-│   ├── css/style.css        # 全局样式（中国传统配色）
+│   ├── css/
+│   │   └── style.css        # 全局样式表（中国传统配色）
 │   └── js/
 │       ├── api.js           # API 客户端（封装所有后端接口）
-│       ├── app.js           # 主应用逻辑（SPA 路由、状态管理、UI 交互）
+│       ├── app.js           # 主应用逻辑（SPA 路由 / 状态管理 / 交互控制）
 │       └── tree-renderer.js # Canvas 2D 族谱树渲染引擎
-└── PERFORMANCE_ANALYSIS.md  # 后端性能优化需求文档
-
-backend/                     # [待补充] Drogon C++ 后端代码
-└── ...
+├── backend/                 # Drogon C++ 后端源代码
+│   └── ...
+└── 前端实现介绍.md           # 前端实现详细说明
 ```
 
 ## 技术架构
 
 ```
-浏览器 (SPA) → Flask 代理 :5000 → Drogon 后端 :8088 → 数据库
+浏览器 (SPA 单页应用)
+    │
+    ▼
+Flask 代理服务器 :5000           ← 前端代码（当前仓库）
+    │  · 反向代理后端 API
+    │  · 管理用户登录 Session
+    │  · 解决跨域（CORS）
+    ▼
+Drogon C++ 后端 :8088            ← backend/ 目录
+    │  · 业务逻辑处理
+    │  · 数据库读写
+    │  · JWT 认证签发
+    ▼
+数据库
 ```
 
-- **前端**：纯 HTML/CSS/JS 单页应用，Canvas 2D 渲染族谱树
-- **代理层**：Flask 反向代理，解决 CORS，管理用户 Session
-- **后端**：C++ Drogon 框架，高性能异步 Web 框架
+- **前端**：纯 HTML + CSS + JavaScript，不依赖任何框架，Canvas 2D 绘制族谱树
+- **代理层**：Flask（Python），轻量反向代理
+- **后端**：Drogon（C++17），高性能异步 Web 框架
 - **认证**：Bearer Token（JWT）
 
 ## 快速开始
 
 ### 环境要求
-- Python 3.8+
-- Drogon 后端服务运行在 `localhost:8088`
 
-### 启动前端
+- Python 3.8 及以上版本
+- 后端 Drogon 服务已启动（默认 `localhost:8088`）
+
+### 启动步骤
 
 ```bash
-# 安装依赖
+# 1. 安装 Python 依赖
 pip install -r requirements.txt
 
-# 启动（生产模式）
+# 2. 启动代理服务器
 python server.py
 
-# 启动（调试模式）
-python server.py --debug
+# 3. 打开浏览器访问
+# http://localhost:5000
 ```
 
-访问 http://localhost:5000
+> **调试模式**：`python server.py --debug` 可开启 Flask 调试模式（代码修改后自动重启）。
 
-## 功能列表
+## 功能概览
 
-| 功能 | 说明 |
+| 模块 | 说明 |
 |------|------|
-| 用户注册/登录 | 用户名+密码，Bearer Token 认证 |
-| 族谱管理 | 创建、删除、多族谱切换 |
-| 族谱树 | Canvas 2D 渲染，支持缩放/平移/点击查看详情 |
-| 成员管理 | 增删改查，分页列表，姓名搜索 |
-| 祖先查询 | 纵向路径图，从远祖到目标成员 |
-| 后代查询 | 树状结构展示，父子关系可视化 |
-| 亲缘关系 | 两成员间的关系路径查询 |
+| 用户注册/登录 | 用户名 + 密码注册，登录后获得操作权限 |
+| 族谱管理 | 创建、删除族谱，支持多族谱切换 |
+| 族谱概览 | 统计卡片 + 性别比例图 + 辈分分布 |
+| 族谱树 | Canvas 渲染后代树，支持缩放/平移/折叠/全屏 |
+| 成员管理 | 增删改查、分页列表、姓名搜索 |
+| 祖先查询 | 纵向时间线展示祖先链 |
+| 后代查询 | 树状结构展示后代，支持折叠/全屏 |
+| 亲缘关系 | 查询两个成员之间的血缘路径 |
 | 统计分析 | 平均寿命最长一代 / 50+未婚男性 / 早于平均出生年份 |
-| 族谱共享 | 创建者管理共享权限（编辑/查看） |
+| 族谱共享 | 创建者可为其他用户分配查看/编辑权限 |
 
-## 后端性能优化
+## 前端实现
 
-详见 [PERFORMANCE_ANALYSIS.md](PERFORMANCE_ANALYSIS.md) — 包含已识别的性能瓶颈分析、接口改造需求、数据库索引建议及实施路线图。
+详见 [前端实现介绍.md](./前端实现介绍.md)，包含完整的模块说明、核心算法和数据流图。
 
 ## License
 

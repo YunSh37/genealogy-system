@@ -148,12 +148,14 @@
               <button id="tree-zoom-out" class="btn btn-sm">🔍-</button>
               <button id="tree-fit" class="btn btn-sm">适应</button>
               <button id="tree-reset" class="btn btn-sm">重置</button>
+              <button id="tree-expand-all" class="btn btn-sm" title="一键展开全部">📖</button>
+              <button id="tree-fullscreen" class="btn btn-sm" title="全屏展开">⛶</button>
               <label style="margin-left:12px;font-size:13px;color:var(--color-text-light)">成员ID：</label>
-              <input type="number" id="tree-member-id" placeholder="留空自动选先祖" class="input-sm" style="width:110px">
+              <input type="number" id="tree-member-id" placeholder="留空=自动选根" class="input-sm" style="width:110px">
               <label style="font-size:13px;color:var(--color-text-light)">深度：</label>
               <input type="number" id="tree-depth" value="5" min="1" max="20" class="input-sm" style="width:60px">
               <button id="tree-load" class="btn btn-sm btn-primary">加载</button>
-              <span class="tree-hint">🖱️ 滚轮缩放 | 拖拽平移 | 点击节点查看详情</span>
+              <span class="tree-hint">🖱️ 滚轮缩放 | 拖拽平移 | 双击逐代展开/折叠 | 点击查看详情</span>
             </div>
             <div class="tree-container">
               <canvas id="tree-canvas"></canvas>
@@ -253,6 +255,23 @@
 
 <!-- Toast -->
 <div id="toast" class="toast"></div>
+
+<!-- ==================== 全屏树覆盖层 ==================== -->
+<div id="tree-fullscreen-overlay" class="tree-fullscreen-overlay" style="display:none">
+  <div class="tree-fullscreen-toolbar">
+    <button id="fs-zoom-in" class="btn btn-sm">🔍+</button>
+    <button id="fs-zoom-out" class="btn btn-sm">🔍-</button>
+    <button id="fs-fit" class="btn btn-sm">适应</button>
+    <button id="fs-reset" class="btn btn-sm">重置</button>
+    <button id="fs-expand-all" class="btn btn-sm" title="一键展开全部">📖</button>
+    <span class="tree-hint" style="margin-left:12px">🖱️ 滚轮缩放 | 拖拽平移 | 双击折叠/展开</span>
+    <span class="flex-spacer"></span>
+    <button id="fs-close" class="btn btn-sm" style="background:#e74c3c;color:#fff;border:none">✕ 关闭全屏</button>
+  </div>
+  <div class="tree-fullscreen-body">
+    <canvas id="fs-tree-canvas"></canvas>
+  </div>
+</div>
 
 <script src="/static/js/api.js"></script>
 <script src="/static/js/tree-renderer.js"></script>
