@@ -153,20 +153,45 @@ cd /tmp
 #### 第 2 步：启动 MySQL 并创建数据库
 
 ```bash
-# 启动 MySQL 服务（WSL 中需手动启动，每次重启 WSL 后都要执行）
+# 启动 MySQL 服务（WSL 中每次重启后都要执行）
 sudo service mysql start
+```
 
-# 创建数据库（使用 sudo，WSL 默认 auth_socket 认证无需密码）
+**接下来需要连接 MySQL。你的 MySQL root 可能有或没有密码，先快速测试一下：**
+
+```bash
+# 执行这条测试命令：
+sudo mysql -u root -e "SELECT 1" 2>/dev/null && echo "→ 无密码，情况 A" || echo "→ 需要密码，情况 B"
+```
+
+根据输出选择对应的情况继续：
+
+---
+
+**情况 A — 输出"无密码"（WSL 默认安装，auth_socket 认证）：**
+
+```bash
+# 无需密码即可创建数据库
 sudo mysql -u root -e "CREATE DATABASE IF NOT EXISTS genealogy_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-
-# ★ 重要：设置 root 密码，使后端程序能通过 TCP 连接数据库
-#   Drogon 后端通过 127.0.0.1:3306 连接 MySQL，必须使用密码认证
-#   如果跳过此步骤，后端启动时会报 "Access denied" 错误
+# 设置密码，使后端程序能通过 TCP 连接 MySQL
 sudo mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '123456'; FLUSH PRIVILEGES;"
 ```
 
-> 密码设为 `123456`（开发环境）。生产环境请使用强密码。
-> 执行后 `sudo mysql` 也将需要密码，后续命令统一使用 `mysql -u root -p123456`。
+---
+
+**情况 B — 输出"需要密码"（安装 MySQL 时设过 root 密码）：**
+
+```bash
+# 使用 -p 输入你的 MySQL root 密码来创建数据库
+sudo mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS genealogy_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+# 统一密码为 123456，后续步骤不需要再区分
+sudo mysql -u root -p -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '123456'; FLUSH PRIVILEGES;"
+```
+
+---
+
+> **无论哪种情况，完成后 MySQL root 密码统一为 `123456`。**
+> Drogon 后端通过 TCP 连接 MySQL，必须使用密码认证 — 这是设置密码的原因。
 
 ---
 
@@ -299,46 +324,57 @@ curl http://localhost:8088/
 
 ```
 # ===== 后端完整部署流程（WSL2 / Linux）=====
+# ★ 如果 sudo mysql 报 Access denied，把前两条 sudo mysql 末尾加上 -p 并输入密码
 wsl                                                          # 进入 WSL
 cd /mnt/d/shujuku/tmp/genealogy-system/backend               # 定位到后端目录
-# --- 数据库 ---
+# --- 数据库：先测试连接方式 ---
 sudo service mysql start                                      # 启动 MySQL
-sudo mysql -u root -e "CREATE DATABASE IF NOT EXISTS genealogy_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-sudo mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '123456'; FLUSH PRIVILEGES;"
-mysql -u root -p123456 genealogy_db < migrations/init_schema.sql    # 建表
-mysql -u root -p123456 genealogy_db < migrations/migration_phase3.sql  # 优化迁移
+sudo mysql -u root -e "SELECT 1" 2>/dev/null && \
+  (sudo mysql -u root -e "CREATE DATABASE IF NOT EXISTS genealogy_db CHARACTER SET utf8mb4;" && \
+   sudo mysql -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '123456'; FLUSH PRIVILEGES;") || \
+  (sudo mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS genealogy_db CHARACTER SET utf8mb4;" && \
+   sudo mysql -u root -p -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '123456'; FLUSH PRIVILEGES;")
+mysql -u root -p123456 genealogy_db < migrations/init_schema.sql   # 建表
+mysql -u root -p123456 genealogy_db < migrations/migration_phase3.sql  # 迁移
 # --- 数据 ---
-cd migrations && python3 generate_test_data.py && cd ..       # 生成测试数据
-export MYSQL_PASSWORD=123456 && ./import_data.sh migrations/test_data  # 导入数据
+cd migrations && python3 generate_test_data.py && cd ..       # 生成数据
+export MYSQL_PASSWORD=123456 && ./import_data.sh migrations/test_data  # 导入
 # --- 编译运行 ---
 mkdir -p build && cd build && cmake .. && cmake --build .     # 编译
-cd .. && cat > config.json << 'EOF'                           # 创建配置
+cd .. && cat > config.json << 'EOF'                           # 配置
 {
     "listeners": [{"address": "0.0.0.0", "port": 8088}],
-    "db_clients": [{
-        "name": "default", "rdbms": "mysql",
+    "db_clients": [{"name": "default", "rdbms": "mysql",
         "host": "127.0.0.1", "port": 3306,
         "dbname": "genealogy_db", "user": "root",
-        "password": "123456", "client_encoding": "utf8mb4"
-    }],
+        "password": "123456", "client_encoding": "utf8mb4"}],
     "app": {"number_of_threads": 4}
 }
 EOF
-cd build && ./genealogy_system                                # 启动服务
+cd build && ./genealogy_system                                # 启动
 ```
 
 ---
 
 ### 常见问题排查
 
-#### 1. MySQL 连接报错 "Access denied for user 'root'@'localhost'"
+#### 1. `sudo mysql -u root` 报错 "Access denied"
+
+```
+ERROR 1045 (28000): Access denied for user 'root'@'localhost' (using password: NO)
+```
+
+**原因**：你的 MySQL root 用户已经设置了密码，不能免密登录。
+
+**解决**：在所有 `sudo mysql` 命令后加 `-p`，输入你的 MySQL root 密码：
 
 ```bash
-# 原因：root 用户使用 auth_socket 插件，不支持 TCP 密码连接
-# 解决：重新用 sudo 进入 MySQL 设置密码
-sudo mysql -u root
-ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '123456';
-FLUSH PRIVILEGES;
+# 原命令（报错）:
+sudo mysql -u root -e "CREATE DATABASE..."
+
+# 改为（加 -p）:
+sudo mysql -u root -p -e "CREATE DATABASE..."
+# 提示 "Enter password:" 时输入你的 MySQL root 密码
 ```
 
 #### 2. import_data.sh 报 "无法连接 MySQL"
