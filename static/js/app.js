@@ -1067,7 +1067,7 @@ const App = {
                 ? '本人'
                 : (a.gender === 'female' ? '母亲' : '父亲');
               return `
-                <div class="anc-snake-card" style="border-top:3px solid ${genColor}">
+                <div class="anc-snake-card" data-member-id="${a.member_id || ''}" style="border-top:3px solid ${genColor};cursor:pointer">
                   <div class="anc-snake-name">${a.name || ''}</div>
                   <div class="anc-snake-meta">第${a.generation ?? '?'}代 · ${relLabel}</div>
                   <div class="anc-snake-life">${(a.birth_date || '').substring(0, 10)}</div>
@@ -1083,6 +1083,14 @@ const App = {
           <strong>查询目标：</strong>${target.name || ''} (ID:${memberId}) · ${filtered.length} 人 · 深度 ${depth}
         </div>
         <div class="anc-snake-container">${rowHtml}</div>`;
+
+      // 绑定祖先卡片点击事件
+      el.querySelectorAll('.anc-snake-card[data-member-id]').forEach(card => {
+        card.addEventListener('click', () => {
+          const mid = parseInt(card.dataset.memberId);
+          if (mid) this._showMemberDetailModal(mid);
+        });
+      });
     } catch (e) {
       el.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:40px">查询失败：${e.message}</p>`;
     } finally {
@@ -1122,6 +1130,11 @@ const App = {
         <div class="desc-canvas-container">
           <canvas id="desc-canvas"></canvas>
         </div>`;
+
+      // 销毁旧的渲染器实例（移除其 window 事件监听器，防止泄漏和冲突）
+      if (this._descRenderer) {
+        this._descRenderer.destroy();
+      }
 
       // 每次创建新的渲染器实例（旧 canvas 已被 innerHTML 销毁，需要全新绑定）
       this._descRenderer = Object.create(TreeRenderer);
@@ -1225,7 +1238,7 @@ const App = {
           const color = n.gender === 'female' ? 'var(--color-female)' : 'var(--color-male)';
           return `
             <div class="rel-tree-node-wrap">
-              <div class="rel-tree-node ${isLast ? 'rel-tree-leaf' : ''}" style="border-left:3px solid ${color}">
+              <div class="rel-tree-node ${isLast ? 'rel-tree-leaf' : ''}" data-member-id="${n.member_id || ''}" style="border-left:3px solid ${color};cursor:pointer">
                 <div class="rel-tree-name">${n.name || '?'}</div>
                 <div class="rel-tree-meta">第${n.generation ?? '?'}代${n.relation ? ' · ' + n.relation : ''}</div>
               </div>
@@ -1247,7 +1260,7 @@ const App = {
           <div class="rel-zoom-tree">
             <div class="rel-tree-container">
               <div class="rel-tree-ancestor">
-                <div class="rel-tree-node rel-tree-root">
+                <div class="rel-tree-node rel-tree-root" data-member-id="${ancestor.member_id || ''}" style="cursor:pointer">
                   <div class="rel-tree-name">${ancestor.name || '公共祖先'}</div>
                   <div class="rel-tree-meta">第${ancestor.generation ?? '?'}代 · 公共祖先</div>
                 </div>
@@ -1275,6 +1288,14 @@ const App = {
       el.querySelector('.rel-zoom-in')?.addEventListener('click', () => RelZoom.zoomIn());
       el.querySelector('.rel-zoom-out')?.addEventListener('click', () => RelZoom.zoomOut());
       el.querySelector('.rel-fit')?.addEventListener('click', () => RelZoom.fit());
+
+      // 绑定关系节点点击查看详情
+      el.querySelectorAll('.rel-tree-node[data-member-id]').forEach(node => {
+        node.addEventListener('click', () => {
+          const mid = parseInt(node.dataset.memberId);
+          if (mid) this._showMemberDetailModal(mid);
+        });
+      });
     } catch (e) {
       el.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:40px">查询失败：${e.message}</p>`;
     } finally {

@@ -51,7 +51,10 @@ const TreeRenderer = {
     this.dpr = window.devicePixelRatio || 1;
     this._bindEvents();
     this._resize();
-    window.addEventListener('resize', () => this._resize());
+    // 存储 resize 处理器引用以便 destroy 时移除
+    if (this._onResize) window.removeEventListener('resize', this._onResize);
+    this._onResize = () => this._resize();
+    window.addEventListener('resize', this._onResize);
   },
 
   _resize() {
@@ -68,7 +71,8 @@ const TreeRenderer = {
   _bindEvents() {
     if (this._eventsBound) return;  // 防止重复绑定（同一实例多次 init 时）
     this._eventsBound = true;
-    this.canvas.addEventListener('wheel', e => {
+
+    this._onWheel = e => {
       e.preventDefault();
       const rect = this.canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
@@ -80,18 +84,20 @@ const TreeRenderer = {
       this.viewY = my - (my - this.viewY) * (newZoom / this.zoom);
       this.zoom = newZoom;
       this._render();
-    });
+    };
+    this.canvas.addEventListener('wheel', this._onWheel, { passive: false });
 
-    this.canvas.addEventListener('mousedown', e => {
+    this._onMouseDown = e => {
       this.dragging = true;
       this.dragStartX = e.clientX;
       this.dragStartY = e.clientY;
       this.dragViewX = this.viewX;
       this.dragViewY = this.viewY;
       this.canvas.style.cursor = 'grabbing';
-    });
+    };
+    this.canvas.addEventListener('mousedown', this._onMouseDown);
 
-    window.addEventListener('mousemove', e => {
+    this._onMouseMove = e => {
       if (this.dragging) {
         this.viewX = this.dragViewX + (e.clientX - this.dragStartX);
         this.viewY = this.dragViewY + (e.clientY - this.dragStartY);
@@ -108,9 +114,10 @@ const TreeRenderer = {
           this.canvas.style.cursor = this.hoveredNode ? 'pointer' : 'grab';
         }
       }
-    });
+    };
+    window.addEventListener('mousemove', this._onMouseMove);
 
-    window.addEventListener('mouseup', e => {
+    this._onMouseUp = e => {
       if (this.dragging) {
         const dx = Math.abs(e.clientX - this.dragStartX);
         const dy = Math.abs(e.clientY - this.dragStartY);
@@ -129,10 +136,11 @@ const TreeRenderer = {
         this.dragging = false;
         this.canvas.style.cursor = this.hoveredNode ? 'pointer' : 'grab';
       }
-    });
+    };
+    window.addEventListener('mouseup', this._onMouseUp);
 
     // 触摸事件
-    this.canvas.addEventListener('touchstart', e => {
+    this._onTouchStart = e => {
       if (e.touches.length === 1) {
         this.dragging = true;
         this.dragStartX = e.touches[0].clientX;
@@ -140,16 +148,21 @@ const TreeRenderer = {
         this.dragViewX = this.viewX;
         this.dragViewY = this.viewY;
       }
-    });
-    this.canvas.addEventListener('touchmove', e => {
+    };
+    this.canvas.addEventListener('touchstart', this._onTouchStart);
+
+    this._onTouchMove = e => {
       e.preventDefault();
       if (this.dragging && e.touches.length === 1) {
         this.viewX = this.dragViewX + (e.touches[0].clientX - this.dragStartX);
         this.viewY = this.dragViewY + (e.touches[0].clientY - this.dragStartY);
         this._render();
       }
-    });
-    this.canvas.addEventListener('touchend', () => { this.dragging = false; });
+    };
+    this.canvas.addEventListener('touchmove', this._onTouchMove, { passive: false });
+
+    this._onTouchEnd = () => { this.dragging = false; };
+    this.canvas.addEventListener('touchend', this._onTouchEnd);
   },
 
   // ---- 碰撞检测 ----
@@ -202,6 +215,22 @@ const TreeRenderer = {
       if (n.spouseId && map[n.spouseId] && n.gender === 'male') {
         n.spouse = map[n.spouseId];
         map[n.spouseId].spouse = n;
+      }
+    });
+
+    // 孤儿节点回退：父亲/母亲不在集合中时，按辈分推测（解决后代查询中中间层缺失问题）
+    const minGen = Math.min(...Object.values(map).map(n => n.generation));
+    Object.values(map).forEach(n => {
+      if (!n.parent && (n.fatherId || n.motherId) && n.generation > minGen) {
+        const candidates = Object.values(map).filter(m =>
+          m !== n && m.generation === n.generation - 1
+        );
+        if (candidates.length > 0) {
+          // 选子树宽度最小的（尽量平衡）
+          candidates.sort((a, b) => a.subtreeW - b.subtreeW);
+          n.parent = candidates[0];
+          candidates[0].children.push(n);
+        }
       }
     });
 
@@ -294,10 +323,8 @@ const TreeRenderer = {
     const vpBottom = vpTop + h / this.zoom;
     const margin = 200; // 视口外扩展
 
-    // 渲染连线
+    // 渲染连线（不裁剪——父节点可能滚出视口但子节点在视口内）
     this.nodes.forEach(n => {
-      if (n.x + n.w < vpLeft - margin || n.x > vpRight + margin) return;
-      if (n.y + n.h < vpTop - margin || n.y > vpBottom + margin) return;
       this._drawConnections(n);
     });
 
@@ -439,5 +466,18 @@ const TreeRenderer = {
 
   refresh() {
     this._render();
+  },
+
+  // ---- 销毁（移除所有事件监听器） ----
+  destroy() {
+    if (this._onWheel)      { this.canvas?.removeEventListener('wheel', this._onWheel); this._onWheel = null; }
+    if (this._onMouseDown)  { this.canvas?.removeEventListener('mousedown', this._onMouseDown); this._onMouseDown = null; }
+    if (this._onMouseMove)  { window.removeEventListener('mousemove', this._onMouseMove); this._onMouseMove = null; }
+    if (this._onMouseUp)    { window.removeEventListener('mouseup', this._onMouseUp); this._onMouseUp = null; }
+    if (this._onTouchStart) { this.canvas?.removeEventListener('touchstart', this._onTouchStart); this._onTouchStart = null; }
+    if (this._onTouchMove)  { this.canvas?.removeEventListener('touchmove', this._onTouchMove); this._onTouchMove = null; }
+    if (this._onTouchEnd)   { this.canvas?.removeEventListener('touchend', this._onTouchEnd); this._onTouchEnd = null; }
+    if (this._onResize)     { window.removeEventListener('resize', this._onResize); this._onResize = null; }
+    this._eventsBound = false;
   },
 };
