@@ -490,6 +490,10 @@ const App = {
     document.getElementById('tree-zoom-out').addEventListener('click', () => TreeRenderer.zoomOut());
     document.getElementById('tree-fit').addEventListener('click', () => TreeRenderer.fitView());
     document.getElementById('tree-reset').addEventListener('click', () => TreeRenderer.resetView());
+    document.getElementById('tree-load').addEventListener('click', () => this._loadFamilyTree());
+    document.getElementById('tree-depth').addEventListener('keydown', e => {
+      if (e.key === 'Enter') this._loadFamilyTree();
+    });
 
     // 成员管理
     document.getElementById('btn-member-search').addEventListener('click', () => this._searchMembers());
@@ -792,13 +796,71 @@ const App = {
   async _loadFamilyTree() {
     if (!this.currentGenealogyId) return;
     const container = document.querySelector('.tree-container');
+    const depth = parseInt(document.getElementById('tree-depth')?.value) || 5;
     try {
-      const data = await API.getAllMembers(this.currentGenealogyId);
-      const members = data.members || [];
+      // 第一步：获取少量成员，找到辈分最小的男性作为先祖
+      const membersData = await API.getMembers(this.currentGenealogyId, 1, 200);
+      const members = membersData.members || [];
       if (members.length === 0) {
         container.innerHTML = '<p style="text-align:center;color:#999;padding:60px">暂无成员数据，请先添加成员</p>';
         return;
       }
+      // 找辈分最小的男性（generation 最小），找不到男性则取任意最小辈分成员
+      let ancestor = null;
+      let minGen = Infinity;
+      members.forEach(m => {
+        const gen = m.generation ?? 1;
+        if (gen < minGen) {
+          minGen = gen;
+          ancestor = m;
+        } else if (gen === minGen && ancestor && m.gender === 'male' && ancestor.gender !== 'male') {
+          ancestor = m;
+        }
+      });
+
+      // 第二步：以先祖为根，按指定深度加载族谱树
+      const treeData = await API.getFamilyTree(ancestor.member_id, depth);
+
+      // 拼接所有成员：兼容新旧两种响应格式
+      // 新格式: { target_member, ancestors[], descendants[] }
+      // 旧格式: { members[] } 或 { descendants[] }
+      const seenIds = new Set();
+      const allMembers = [];
+
+      // 添加祖先路径（新格式）
+      (treeData.ancestors || []).forEach(a => {
+        if (a.member_id && !seenIds.has(a.member_id)) {
+          allMembers.push(a);
+          seenIds.add(a.member_id);
+        }
+      });
+
+      // 添加目标成员（新格式）
+      const target = treeData.target_member;
+      if (target && target.member_id && !seenIds.has(target.member_id)) {
+        allMembers.push(target);
+        seenIds.add(target.member_id);
+      }
+
+      // 添加后代树
+      const descendants = treeData.descendants || treeData.members || [];
+      descendants.forEach(d => {
+        if (d.member_id && !seenIds.has(d.member_id)) {
+          allMembers.push(d);
+          seenIds.add(d.member_id);
+        }
+      });
+
+      // 兜底：如果新格式字段都没有，用祖先对象本身
+      if (allMembers.length === 0 && ancestor.member_id) {
+        allMembers.push(ancestor);
+      }
+
+      if (allMembers.length === 0) {
+        container.innerHTML = '<p style="text-align:center;color:#999;padding:60px">暂无族谱树数据</p>';
+        return;
+      }
+
       // 复用已有 canvas，不重复创建（避免事件监听器累积）
       if (!container.querySelector('#tree-canvas')) {
         container.innerHTML = '<canvas id="tree-canvas"></canvas>';
@@ -808,7 +870,7 @@ const App = {
         TreeRenderer.init('tree-canvas', (member) => {
           this._showMemberDetailModal(member.member_id);
         });
-        TreeRenderer.loadMembers(members);
+        TreeRenderer.loadMembers(allMembers);
 
         // 绑定横向滑轨
         HScrollbar.attach(TreeRenderer, '.tree-container');

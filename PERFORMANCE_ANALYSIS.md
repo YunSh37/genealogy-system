@@ -423,24 +423,144 @@ SELECT * FROM tree ORDER BY depth, generation, birth_date;
 
 ---
 
-### 3.2 族谱树 - 备选方案（快速实现）
+### 3.2 族谱树 - `/api/member/{mid}/family-tree` 接口改造方案
 
-如果分层接口改动较大，可先优化现有 `getAllMembers` 调用方式：
+**当前接口现状**：
+- 参数：`member_id`（路径）、`depth`（1~5，默认 3）
+- 返回：`{ root, depth, ancestors[], descendants[], total_ancestors, total_descendants }`
+- 问题：`depth` 同时限制了祖先和后代两个方向的遍历深度；祖先返回扁平数组，未保留路径结构；成员对象缺少完整的关系字段
 
-**利用已有接口**：`GET /api/member/{mid}/family-tree?depth=N`
+---
 
-前端改为：
-```javascript
-// 不再调用 getAllMembers
-// 改为：找到族谱中最小辈分的成员 ID，以他们为根获取 depth=5 的树
-const roots = await API.getMembers(gid, 1, 10); // 只要前10个根成员
-for (const root of roots.members) {
-  const tree = await API.getFamilyTree(root.member_id, 5);
-  // 合并多棵树
+**需求说明**（前端使用场景）：
+
+前端族谱树视图需要一个"完整树"：以指定成员为中心，**向上追溯祖先到根节点**（无深度限制），**向下展开后代到指定深度**。最终拼接成一棵完整的族谱树，根节点变为最远的祖先。
+
+具体要求：
+1. **向上（祖先部分）**：从目标成员向上遍历 `father_id`/`mother_id`，直到某成员的 `father_id` 和 `mother_id` 均为 `null`（即到达根节点）。返回结果应为**一条路径**（链式结构），路径上每个辈分只保留一个节点（同辈去重，优先保留男性）。
+2. **向下（后代部分）**：从目标成员向下遍历后代，深度由 `depth` 参数控制。返回结果为**一棵树**（所有后代成员，保留 `father_id`/`mother_id` 关系字段）。
+3. **拼接**：前端将祖先路径和后代树在目标成员处拼接，形成完整的族谱树。
+
+---
+
+**接口改造建议**：
+
+**参数修改**：
+
+| 参数 | 当前 | 建议修改 |
+|------|------|----------|
+| `depth` | 同时限制祖先和后代，范围 1~5 | **仅限制后代深度**，建议范围改为 1~20，默认 5 |
+| `member_id` | 不变 | 不变 |
+
+**响应格式修改**：
+
+```json
+{
+  "code": 200,
+  "message": "获取成功",
+  "data": {
+    "target_member": {
+      "member_id": 100,
+      "name": "张三",
+      "gender": "male",
+      "generation": 4,
+      "birth_date": "1950-01-01",
+      "death_date": null,
+      "father_id": 50,
+      "mother_id": 51,
+      "spouse_id": 101
+    },
+    "depth": 5,
+    "ancestors": [
+      {
+        "member_id": 1,
+        "name": "张一",
+        "gender": "male",
+        "generation": 1,
+        "birth_date": "1800-01-01",
+        "death_date": "1870-01-01",
+        "father_id": null,
+        "mother_id": null,
+        "spouse_id": 2,
+        "relation": "曾祖父"
+      },
+      {
+        "member_id": 50,
+        "name": "张二",
+        "gender": "male",
+        "generation": 2,
+        "birth_date": "1830-01-01",
+        "death_date": "1900-01-01",
+        "father_id": 1,
+        "mother_id": null,
+        "spouse_id": 51,
+        "relation": "祖父"
+      }
+    ],
+    "descendants": [
+      {
+        "member_id": 200,
+        "name": "张四",
+        "gender": "male",
+        "generation": 5,
+        "birth_date": "1980-01-01",
+        "death_date": null,
+        "father_id": 100,
+        "mother_id": 101,
+        "spouse_id": null
+      }
+    ],
+    "total_ancestors": 3,
+    "total_descendants": 15
+  }
 }
 ```
 
-但这只是临时方案，**最终仍需分层加载接口**。
+**关键变更**：
+1. `ancestors`：改为**路径数组**（从最远祖先到目标成员的父/母，按 `generation` 从小到大排序），同辈只保留一个节点（优先男性），每个节点必须包含完整字段
+2. `descendants`：保持数组形式，但每个成员必须包含 `member_id`, `name`, `gender`, `generation`, `father_id`, `mother_id`, `spouse_id`, `birth_date`, `death_date` 字段
+3. 新增 `target_member`：目标成员本身（含完整字段），方便前端拼接
+4. `depth` 最大值建议提高到 20
+
+---
+
+**实现分析推荐**：
+
+**向上遍历（祖先路径）**：
+```sql
+-- 递归 CTE 获取祖先链
+WITH RECURSIVE ancestors AS (
+  SELECT *, 0 AS depth FROM members WHERE member_id = ?
+  UNION ALL
+  SELECT m.*, a.depth + 1
+  FROM members m
+  JOIN ancestors a ON m.member_id = a.father_id OR m.member_id = a.mother_id
+  WHERE a.depth < 50  -- 安全上限
+)
+SELECT * FROM ancestors WHERE member_id != ? ORDER BY generation ASC;
+```
+- 结果按 `generation` 升序排列
+- 应用层做同辈去重：相同 `generation` 有多个成员时只保留 `gender='male'` 的那个
+- 添加 `relation` 字段（曾祖父、祖父、父亲等），基于深度计算
+
+**向下遍历（后代树）**：
+```sql
+-- 递归 CTE 获取后代树
+WITH RECURSIVE descendants AS (
+  SELECT *, 0 AS depth FROM members WHERE member_id = ?
+  UNION ALL
+  SELECT m.*, d.depth + 1
+  FROM members m
+  JOIN descendants d ON m.father_id = d.member_id OR m.mother_id = d.member_id
+  WHERE d.depth < ?  -- depth 参数
+)
+SELECT * FROM descendants WHERE member_id != ? ORDER BY depth, generation;
+```
+
+**性能考量**：
+- 祖先链通常很短（10~20 代），递归深度可控
+- 后代树受 `depth` 限制，建议默认 5，最大 20
+- 启用 gzip 压缩，10 代 × 平均每代 50 人 ≈ 500 个节点，压缩后 < 50KB
 
 ---
 
