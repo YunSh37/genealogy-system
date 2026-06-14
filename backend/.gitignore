@@ -1,0 +1,40 @@
+# 构建产物
+build/
+*.o
+*.obj
+*.exe
+*.out
+*.app
+*.dll
+*.so
+*.dylib
+
+# CMake 生成文件
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+
+# IDE 配置
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 配置文件（含敏感信息）
+config.json
+config.yaml
+*.cfg
+*.ini
+
+# 导出数据
+exports/
+
+# 日志文件
+*.log
