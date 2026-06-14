@@ -824,6 +824,12 @@ body {
 .anc-snake-ltr { flex-direction: row; justify-content: center; }
 .anc-snake-rtl { flex-direction: row-reverse; justify-content: center; }
 
+/* 非满行对齐：确保蛇形路径在换行处衔接 */
+/* RTL 非满行：flex-start 在 row-reverse 中 = 视觉右侧（紧接上一行末尾） */
+.anc-snake-rtl.anc-snake-partial { justify-content: flex-start; }
+/* LTR 非满行：flex-end = 视觉右侧（为下一行 RTL 起始位置对齐） */
+.anc-snake-ltr.anc-snake-partial { justify-content: flex-end; }
+
 .anc-snake-card {
   flex: 0 0 auto;
   padding: 8px 14px;

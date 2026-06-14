@@ -1149,9 +1149,11 @@ const App = {
       const rowHtml = rows.map((row, ri) => {
         const isRTL = ri % 2 === 1;
         const dir = isRTL ? 'rtl' : 'ltr';
+        const isPartial = row.length < perRow;
+        const partialClass = isPartial ? ' anc-snake-partial' : '';
         const items = isRTL ? [...row].reverse() : row;
         return `
-          <div class="anc-snake-row anc-snake-${dir}">
+          <div class="anc-snake-row anc-snake-${dir}${partialClass}">
             ${items.map((a, i) => {
               const genColor = a.gender === 'female' ? 'var(--color-female)' : 'var(--color-male)';
               const arrow = (i < items.length - 1)
@@ -1201,7 +1203,6 @@ const App = {
     const btn = document.getElementById('btn-query-descendants');
     const el = document.getElementById('desc-result');
     this._btnLoading(btn, true);
-    // 不用 _setLoading（它会保存/恢复 innerHTML 从而破坏 canvas）
     el.innerHTML = '<p style="text-align:center;color:#999;padding:40px"><span class="spinner"></span> 查询中...</p>';
     try {
       const data = await API.getDescendants(memberId, depth);
@@ -1215,42 +1216,47 @@ const App = {
       }
 
       el.innerHTML = `
-        <div style="margin-bottom:8px;font-size:13px;color:var(--color-text-light);display:flex;align-items:center;gap:8px">
+        <div style="margin-bottom:8px;font-size:13px;color:var(--color-text-light);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <strong>根节点：</strong>${target.name || ''} (ID:${memberId}) · 共 ${items.length} 位后代 · 深度 ${depth}
           <span class="flex-spacer"></span>
           <button class="btn btn-sm desc-zoom-in">🔍+</button>
           <button class="btn btn-sm desc-zoom-out">🔍-</button>
           <button class="btn btn-sm desc-fit">适应</button>
+          <button class="btn btn-sm desc-reset">重置</button>
         </div>
         <div class="desc-canvas-container">
           <canvas id="desc-canvas"></canvas>
         </div>`;
 
-      // 销毁旧的渲染器实例（移除其 window 事件监听器，防止泄漏和冲突）
-      if (this._descRenderer && this._descRenderer.destroy) {
-        this._descRenderer.destroy();
-      }
-
-      // 使用工厂方法创建完全独立的渲染器实例（不走原型链，避免状态污染）
-      this._descRenderer = TreeRenderer.createInstance();
+      // 照搬族谱树模式：直接使用 TreeRenderer，每次 destroy + init
+      TreeRenderer.destroy();
+      TreeRenderer.nodes = [];
+      TreeRenderer.nodeMap = {};
+      TreeRenderer.roots = [];
+      TreeRenderer.viewX = 0;
+      TreeRenderer.viewY = 0;
+      TreeRenderer.zoom = 1.0;
+      TreeRenderer.selectedNode = null;
+      TreeRenderer.hoveredNode = null;
 
       // 等一帧确保 canvas 在 DOM 中完成布局
       requestAnimationFrame(() => {
         try {
-          this._descRenderer.init('desc-canvas', (member) => {
+          TreeRenderer.init('desc-canvas', (member) => {
             this._showMemberDetailModal(member.member_id);
           });
           // 目标成员 + 所有后代一起传入，让树以目标为根
           const allMembers = target.member_id ? [target, ...items] : items;
-          this._descRenderer.loadMembers(allMembers);
+          TreeRenderer.loadMembers(allMembers);
 
-          // 绑定缩放按钮
-          el.querySelector('.desc-zoom-in')?.addEventListener('click', () => this._descRenderer.zoomIn());
-          el.querySelector('.desc-zoom-out')?.addEventListener('click', () => this._descRenderer.zoomOut());
-          el.querySelector('.desc-fit')?.addEventListener('click', () => this._descRenderer.fitView());
+          // 绑定缩放按钮（照搬族谱树按钮模式）
+          el.querySelector('.desc-zoom-in')?.addEventListener('click', () => TreeRenderer.zoomIn());
+          el.querySelector('.desc-zoom-out')?.addEventListener('click', () => TreeRenderer.zoomOut());
+          el.querySelector('.desc-fit')?.addEventListener('click', () => TreeRenderer.fitView());
+          el.querySelector('.desc-reset')?.addEventListener('click', () => TreeRenderer.resetView());
 
           // 绑定横向滑轨
-          HScrollbar.attach(this._descRenderer, '.desc-canvas-container');
+          HScrollbar.attach(TreeRenderer, '.desc-canvas-container');
         } catch (err) {
           console.error('后代树渲染失败:', err);
           el.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:40px">渲染后代树失败：${err.message}</p>`;
