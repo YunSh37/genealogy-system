@@ -1237,10 +1237,10 @@ void MemberController::searchMember(const HttpRequestPtr& req,
             // 关键词太短（<3字符）时回退到 LIKE（MySQL 默认 ft_min_word_len=4）
             bool use_fulltext = (keyword.length() >= 3);
 
-            // 查询总数
+            // 查询总数（优先 FULLTEXT，失败或 0 结果时回退 LIKE）
             int total = 0;
-            try {
-                if (use_fulltext) {
+            if (use_fulltext) {
+                try {
                     auto countResult = client->execSqlSync(R"(
                         SELECT COUNT(*) as total FROM Member m
                         JOIN Genealogy g ON m.genealogy_id = g.genealogy_id
@@ -1249,21 +1249,16 @@ void MemberController::searchMember(const HttpRequestPtr& req,
                     if (!countResult.empty()) {
                         total = countResult[0]["total"].as<int>();
                     }
-                } else {
-                    std::string search_pattern = "%" + keyword + "%";
-                    auto countResult = client->execSqlSync(
-                        "SELECT COUNT(*) as total FROM Member m "
-                        "JOIN Genealogy g ON m.genealogy_id = g.genealogy_id "
-                        "WHERE g.user_id = ? AND m.name LIKE ?",
-                        user_id, search_pattern
-                    );
-                    if (!countResult.empty()) {
-                        total = countResult[0]["total"].as<int>();
+                    // FULLTEXT 返回 0 行可能是中文分词问题，回退到 LIKE
+                    if (total == 0) {
+                        use_fulltext = false;
                     }
+                } catch (const std::exception& e) {
+                    // FULLTEXT 执行失败（如索引损坏），回退到 LIKE
+                    use_fulltext = false;
                 }
-            } catch (const std::exception& e) {
-                // FULLTEXT 搜索失败，回退到 LIKE
-                use_fulltext = false;
+            }
+            if (!use_fulltext) {
                 std::string search_pattern = "%" + keyword + "%";
                 auto countResult = client->execSqlSync(
                     "SELECT COUNT(*) as total FROM Member m "

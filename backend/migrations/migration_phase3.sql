@@ -34,19 +34,24 @@ DEALLOCATE PREPARE stmt;
 
 -- ============================================================
 -- 2. 全文搜索索引（替代 LIKE '%keyword%'）
+--    中文必须用 ngram 分词器，默认空格分词对中文无效
 -- ============================================================
 
+-- 先删除旧索引（可能无 ngram 分词器）
 SET @index_exists = (
     SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Member' AND INDEX_NAME = 'ft_member_name'
 );
-SET @sql = IF(@index_exists = 0,
-    'ALTER TABLE Member ADD FULLTEXT INDEX ft_member_name (name)',
-    'SELECT ''ft_member_name already exists'''
+SET @sql = IF(@index_exists > 0,
+    'ALTER TABLE Member DROP INDEX ft_member_name',
+    'SELECT ''ft_member_name does not exist, skip drop'''
 );
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
+
+-- 重建索引，使用 ngram 分词器（支持中文）
+ALTER TABLE Member ADD FULLTEXT INDEX ft_member_name (name) WITH PARSER ngram;
 
 -- ============================================================
 -- 3. 统计缓存表（替代 Redis）

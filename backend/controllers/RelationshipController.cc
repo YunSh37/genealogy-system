@@ -1107,43 +1107,59 @@ void RelationshipController::getRelationship(const HttpRequestPtr& req,
 }
 
 // 获取祖先路径（线性链，优先父系，追溯到根节点）
+// ============================================================
+// 获取祖先线性路径（优先父系，追溯到根节点）
+// ★ 优化：使用 ancestor_path 解析替代 while 循环 N+1 查询
+// 格式：/1/862/2717/.../33332 → 解析得到 [1, 862, 2717, ..., 33332]
+// ============================================================
 std::vector<int> RelationshipController::getAncestorLineagePath(int member_id) {
     std::vector<int> path;
-    int current_id = member_id;
     auto client = app().getDbClient();
 
-    // 从目标成员向上追溯，优先选择父亲
-    while (current_id > 0) {
+    try {
+        // 一次查询获取 ancestor_path
         auto result = client->execSqlSync(
-            "SELECT father_id, mother_id FROM Member WHERE member_id = ?",
-            current_id
+            "SELECT ancestor_path FROM Member WHERE member_id = ?",
+            member_id
         );
 
-        if (result.empty()) {
-            break;
+        if (result.empty()) return path;
+
+        std::string ancestor_path = dbutils::safeStr(result[0], "ancestor_path");
+        if (ancestor_path.empty() || ancestor_path[0] != '/') return path;
+
+        // 解析 ancestor_path，排除目标成员自身
+        size_t start = 1;
+        while (start < ancestor_path.length()) {
+            size_t end = ancestor_path.find('/', start);
+            if (end == std::string::npos) end = ancestor_path.length();
+            std::string id_str = ancestor_path.substr(start, end - start);
+            if (!id_str.empty()) {
+                int id = std::stoi(id_str);
+                if (id != member_id) path.push_back(id);
+            }
+            start = end + 1;
         }
 
-        int father_id = dbutils::safeInt(result[0], "father_id");
-        int mother_id = dbutils::safeInt(result[0], "mother_id");
+        // 路径已是根→成员顺序（自然顺序），直接返回
+        return path;
 
-        // 优先选择父亲，如果没有则选择母亲
-        int parent_id = (father_id > 0) ? father_id : mother_id;
-
-        if (parent_id <= 0) {
-            // 到达根节点（无父母）
-            break;
-        }
-
-        path.push_back(parent_id);
-        current_id = parent_id;
+    } catch (const std::exception& e) {
+        std::cerr << "获取祖先路径异常: " << e.what() << std::endl;
+        return path;
     }
-
-    // 反转路径，使其从根到父/母
-    std::reverse(path.begin(), path.end());
-    return path;
 }
 
-// 获取家族树接口实现
+// ============================================================
+// 获取家族树接口实现（性能优化版）
+// ============================================================
+// 优化要点：
+//   1. 移除 depth=20 硬上限 → 最大 100，0=不限
+//   2. 祖先查找用 ancestor_path 解析（1 条 SQL），替代 N+1 while 循环
+//   3. 后代查找复用 getDescendantPath（已有根节点快速通道）
+//   4. 消除 N+1 getSpouseId()：先从批量查询结果提取 spouse_id，一次性补查
+//   5. 精确列选择替代 SELECT *
+// ============================================================
 void RelationshipController::getFamilyTree(const HttpRequestPtr& req,
                                          std::function<void(const HttpResponsePtr&)>&& callback,
                                          int member_id) {
@@ -1165,89 +1181,183 @@ void RelationshipController::getFamilyTree(const HttpRequestPtr& req,
             return;
         }
 
-        // depth 仅控制后代深度，范围 1-20，默认 5
+        // depth 控制后代深度，0=不限（与 getDescendants 一致），最大 100
         int depth = 5;
         auto depth_str = req->getParameter("depth");
         if (!depth_str.empty()) {
             try {
                 depth = std::stoi(depth_str);
-                if (depth < 1) depth = 1;
-                if (depth > 20) depth = 20;
+                if (depth < 0) depth = 0;
+                if (depth > 100) depth = 100;
             } catch (...) {
                 callback(createApiResponse(400, "深度参数无效"));
                 return;
             }
         }
 
-        // 获取当前成员及其配偶
-        Value target_member = getMemberDetails(member_id);
-        if (target_member.isNull()) {
+        auto client = app().getDbClient();
+
+        // ============================================================
+        // 步骤1：获取目标成员的 ancestor_path + 基本信息（1 条 SQL）
+        // ============================================================
+        auto targetResult = client->execSqlSync(
+            "SELECT member_id, name, gender, birth_date, death_date, biography,"
+            " genealogy_id, father_id, mother_id, spouse_id, generation, ancestor_path"
+            " FROM Member WHERE member_id = ?", member_id);
+
+        if (targetResult.empty()) {
             callback(createApiResponse(404, "成员不存在"));
             return;
         }
 
-        int spouse_id = getSpouseId(member_id);
-        if (spouse_id > 0) {
-            Value spouse_info = getMemberDetails(spouse_id);
-            if (!spouse_info.isNull()) {
-                target_member["spouse"] = spouse_info;
+        std::string ancestor_path = dbutils::safeStr(targetResult[0], "ancestor_path");
+
+        // 构建 target_member（从查询结果直接构建，省一次 getMemberDetails 调用）
+        Value target_member;
+        target_member["member_id"] = member_id;
+        target_member["name"] = targetResult[0]["name"].as<std::string>();
+        target_member["gender"] = targetResult[0]["gender"].as<std::string>();
+        target_member["genealogy_id"] = targetResult[0]["genealogy_id"].as<int>();
+        target_member["father_id"] = dbutils::safeInt(targetResult[0], "father_id");
+        target_member["mother_id"] = dbutils::safeInt(targetResult[0], "mother_id");
+        target_member["spouse_id"] = dbutils::safeInt(targetResult[0], "spouse_id");
+        target_member["generation"] = dbutils::safeInt(targetResult[0], "generation");
+        std::string bdate = dbutils::safeStr(targetResult[0], "birth_date");
+        std::string ddate = dbutils::safeStr(targetResult[0], "death_date");
+        std::string bio = dbutils::safeStr(targetResult[0], "biography");
+        if (!bdate.empty()) target_member["birth_date"] = bdate;
+        if (!ddate.empty()) target_member["death_date"] = ddate;
+        if (!bio.empty()) target_member["biography"] = bio;
+
+        // ============================================================
+        // 步骤2：从 ancestor_path 解析祖先 ID 列表（无需 SQL）
+        // 格式：/1/862/2717/.../33332，排除最后一个（目标成员自身）
+        // ============================================================
+        std::vector<int> ancestors;
+        if (!ancestor_path.empty() && ancestor_path[0] == '/') {
+            size_t start = 1;
+            while (start < ancestor_path.length()) {
+                size_t end = ancestor_path.find('/', start);
+                if (end == std::string::npos) end = ancestor_path.length();
+                std::string id_str = ancestor_path.substr(start, end - start);
+                if (!id_str.empty()) {
+                    int id = std::stoi(id_str);
+                    if (id != member_id) ancestors.push_back(id);
+                }
+                start = end + 1;
             }
         }
+        // 反转：成员→根（近→远）
+        std::reverse(ancestors.begin(), ancestors.end());
 
-        // 获取祖先路径（线性链，优先父系，追溯到根节点，不受 depth 限制）
-        auto ancestors = getAncestorLineagePath(member_id);
-
-        // 批量获取所有祖先及其配偶的详情
-        std::unordered_set<int> allIds;
-        for (int id : ancestors) {
-            allIds.insert(id);
-            int sid = getSpouseId(id);
-            if (sid > 0) allIds.insert(sid);
-        }
-
-        // 获取后代（受 depth 参数控制）
+        // ============================================================
+        // 步骤3：获取后代 ID 列表（复用已优化的 getDescendantPath）
+        // ============================================================
         auto descendants = getDescendantPath(member_id, depth);
-        for (int id : descendants) {
-            allIds.insert(id);
-            int sid = getSpouseId(id);
-            if (sid > 0) allIds.insert(sid);
-        }
 
-        // 一次性批量查询所有相关成员
+        // ============================================================
+        // 步骤4：收集所有需要查询的 ID（不含配偶，配偶从批量结果中提取）
+        // ============================================================
+        std::unordered_set<int> allIds;
+        allIds.insert(member_id);
+        for (int id : ancestors) allIds.insert(id);
+        for (int id : descendants) allIds.insert(id);
+
+        // ============================================================
+        // 步骤5：批量查询所有成员 + 配偶（精确列，无 SELECT *）
+        // ============================================================
         std::unordered_map<int, Json::Value> memberCache;
+
+        // 第一轮：查询已收集的 ID
         if (!allIds.empty()) {
             std::string idList;
             for (int id : allIds) {
                 if (!idList.empty()) idList += ",";
                 idList += std::to_string(id);
             }
-            auto client = app().getDbClient();
-            std::string batchSql = "SELECT * FROM Member WHERE member_id IN (" + idList + ")";
-            auto batchResult = client->execSqlSync(batchSql);
+
+            auto batchResult = client->execSqlSync(
+                "SELECT member_id, name, gender, birth_date, death_date,"
+                " genealogy_id, father_id, mother_id, spouse_id, generation"
+                " FROM Member WHERE member_id IN (" + idList + ")");
+
+            std::set<int> missingSpouseIds;
             for (const auto& row : batchResult) {
-                models::Member m;
-                m.member_id = row["member_id"].as<int>();
-                m.genealogy_id = row["genealogy_id"].as<int>();
-                m.name = row["name"].as<std::string>();
-                m.gender = row["gender"].as<std::string>();
-                m.birth_date = dbutils::safeStr(row, "birth_date");
-                m.death_date = dbutils::safeStr(row, "death_date");
-                m.biography = dbutils::safeStr(row, "biography");
-                m.father_id = dbutils::safeInt(row, "father_id");
-                m.mother_id = dbutils::safeInt(row, "mother_id");
-                m.spouse_id = dbutils::safeInt(row, "spouse_id");
-                m.generation = dbutils::safeInt(row, "generation");
-                memberCache[m.member_id] = m.toJson();
+                int mid = row["member_id"].as<int>();
+                Value m;
+                m["member_id"] = mid;
+                m["name"] = row["name"].as<std::string>();
+                m["gender"] = row["gender"].as<std::string>();
+                m["genealogy_id"] = row["genealogy_id"].as<int>();
+                m["father_id"] = dbutils::safeInt(row, "father_id");
+                m["mother_id"] = dbutils::safeInt(row, "mother_id");
+                m["spouse_id"] = dbutils::safeInt(row, "spouse_id");
+                m["generation"] = dbutils::safeInt(row, "generation");
+                std::string bd = dbutils::safeStr(row, "birth_date");
+                std::string dd = dbutils::safeStr(row, "death_date");
+                if (!bd.empty()) m["birth_date"] = bd;
+                if (!dd.empty()) m["death_date"] = dd;
+                memberCache[mid] = m;
+
+                int sid = dbutils::safeInt(row, "spouse_id");
+                if (sid > 0 && allIds.find(sid) == allIds.end()) {
+                    missingSpouseIds.insert(sid);
+                }
+            }
+
+            // 第二轮：补查缺失的配偶（通常很少）
+            if (!missingSpouseIds.empty()) {
+                std::string spouseIdList;
+                for (int sid : missingSpouseIds) {
+                    if (!spouseIdList.empty()) spouseIdList += ",";
+                    spouseIdList += std::to_string(sid);
+                }
+                auto spouseResult = client->execSqlSync(
+                    "SELECT member_id, name, gender, birth_date, death_date,"
+                    " genealogy_id, father_id, mother_id, spouse_id, generation"
+                    " FROM Member WHERE member_id IN (" + spouseIdList + ")");
+
+                for (const auto& row : spouseResult) {
+                    int mid = row["member_id"].as<int>();
+                    Value m;
+                    m["member_id"] = mid;
+                    m["name"] = row["name"].as<std::string>();
+                    m["gender"] = row["gender"].as<std::string>();
+                    m["genealogy_id"] = row["genealogy_id"].as<int>();
+                    m["father_id"] = dbutils::safeInt(row, "father_id");
+                    m["mother_id"] = dbutils::safeInt(row, "mother_id");
+                    m["spouse_id"] = dbutils::safeInt(row, "spouse_id");
+                    m["generation"] = dbutils::safeInt(row, "generation");
+                    std::string bd = dbutils::safeStr(row, "birth_date");
+                    std::string dd = dbutils::safeStr(row, "death_date");
+                    if (!bd.empty()) m["birth_date"] = bd;
+                    if (!dd.empty()) m["death_date"] = dd;
+                    memberCache[mid] = m;
+                }
             }
         }
 
-        // 构建祖先数组（线性路径，从根到父/母）
+        // ============================================================
+        // 步骤6：挂接 target_member 的配偶
+        // ============================================================
+        int target_spouse = dbutils::safeInt(targetResult[0], "spouse_id");
+        if (target_spouse > 0) {
+            auto it = memberCache.find(target_spouse);
+            if (it != memberCache.end()) {
+                target_member["spouse"] = it->second;
+            }
+        }
+
+        // ============================================================
+        // 步骤7：构建祖先数组（从根→父/母的顺序，挂接配偶）
+        // ============================================================
         Value ancestorsArray(Json::arrayValue);
         for (int ancestor_id : ancestors) {
             auto it = memberCache.find(ancestor_id);
             if (it != memberCache.end()) {
                 Value ancestor = it->second;
-                int asp = ancestor.isMember("spouse_id") && !ancestor["spouse_id"].isNull() ? ancestor["spouse_id"].asInt() : 0;
+                int asp = 0;
+                if (ancestor.isMember("spouse_id")) asp = ancestor["spouse_id"].asInt();
                 if (asp > 0) {
                     auto sit = memberCache.find(asp);
                     if (sit != memberCache.end()) {
@@ -1258,13 +1368,16 @@ void RelationshipController::getFamilyTree(const HttpRequestPtr& req,
             }
         }
 
-        // 构建后代数组
+        // ============================================================
+        // 步骤8：构建后代数组（挂接配偶）
+        // ============================================================
         Value descendantsArray(Json::arrayValue);
         for (int descendant_id : descendants) {
             auto it = memberCache.find(descendant_id);
             if (it != memberCache.end()) {
                 Value descendant = it->second;
-                int dsp = descendant.isMember("spouse_id") && !descendant["spouse_id"].isNull() ? descendant["spouse_id"].asInt() : 0;
+                int dsp = 0;
+                if (descendant.isMember("spouse_id")) dsp = descendant["spouse_id"].asInt();
                 if (dsp > 0) {
                     auto sit = memberCache.find(dsp);
                     if (sit != memberCache.end()) {

@@ -1,0 +1,24 @@
+# 强制 LF 换行（shell 脚本、Python 脚本、SQL 文件）
+*.sh           text eol=lf
+*.py           text eol=lf
+*.sql          text eol=lf
+
+# C++ 源码 — 让 git 自动判断（Windows 用 CRLF，Linux 用 LF）
+*.cc           text
+*.h            text
+
+# Markdown — 仓库用 LF，本地无所谓
+*.md           text
+
+# JSON 配置文件
+*.json         text
+
+# 构建配置
+CMakeLists.txt text
+*.cmake        text
+*.txt          text
+
+# 二进制文件不改动
+*.png          binary
+*.jpg          binary
+*.ico          binary
