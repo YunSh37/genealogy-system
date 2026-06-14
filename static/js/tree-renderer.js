@@ -33,6 +33,8 @@ const TreeRenderer = {
   selectedNode: null,
   hoveredNode: null,
   highlightedIds: null,  // Set<number>：需要高亮的成员 ID 集合
+  _visibleSet: null,     // Set<number>：当前可见节点 ID，替换 O(n) includes 为 O(1) has
+  _treeBounds: null,     // { minX, maxX, minY, maxY, treeW, treeH }：缓存套，布局时计算一次
   onNodeClick: null,
   onNodeDblClick: null,  // 双击回调（用于折叠/展开）
 
@@ -388,6 +390,20 @@ const TreeRenderer = {
     };
     roots.forEach(r => collectVisible(r));
     this.nodes = visibleNodes;
+
+    // 构建可见节点 ID 集合（替换 O(n) includes 为 O(1) has）
+    this._visibleSet = new Set();
+    visibleNodes.forEach(n => this._visibleSet.add(n.id));
+
+    // 缓存树边界（避免 render / 滑轨每次 O(n) 重新遍历）
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    visibleNodes.forEach(n => {
+      if (n.x < minX) minX = n.x;
+      if (n.x + n.w > maxX) maxX = n.x + n.w;
+      if (n.y < minY) minY = n.y;
+      if (n.y + n.h > maxY) maxY = n.y + n.h;
+    });
+    this._treeBounds = { minX, maxX, minY, maxY, treeW: maxX - minX + 40, treeH: maxY - minY + 40 };
   },
 
   // ---- 布局算法 ----
@@ -556,8 +572,8 @@ const TreeRenderer = {
     // 父子连线（只连可见的孩子）
     n.children.forEach(child => {
       if (child === n) return;
-      // 跳过因折叠不可见的节点
-      if (!this.nodes.includes(child)) return;
+      // 跳过因折叠不可见的节点（O(1) Set 查找）
+      if (!this._visibleSet || !this._visibleSet.has(child.id)) return;
       const px = n.x + n.w / 2;
       const py = n.y + n.h;
       const cx = child.x + child.w / 2;
@@ -573,8 +589,8 @@ const TreeRenderer = {
       ctx.stroke();
     });
 
-    // 配偶连线（每个配偶对只画一次，取 id 较小的一方）
-    if (n.spouse && n.id < n.spouse.id && this.nodes.includes(n.spouse)) {
+    // 配偶连线（每个配偶对只画一次，取 id 较小的一方，O(1) Set 查找）
+    if (n.spouse && n.id < n.spouse.id && this._visibleSet && this._visibleSet.has(n.spouse.id)) {
       const sx = n.x + n.w;
       const sy = n.y + n.h / 2;
       const ex = n.spouse.x;
@@ -745,6 +761,8 @@ const TreeRenderer = {
     inst.selectedNode = null;
     inst.hoveredNode = null;
     inst.highlightedIds = null;
+    inst._visibleSet = null;
+    inst._treeBounds = null;
     inst.onNodeClick = null;
     inst.onNodeDblClick = null;
     inst._eventsBound = false;

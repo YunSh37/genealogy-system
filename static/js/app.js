@@ -37,18 +37,12 @@ const HScrollbar = {
       if (maxLeft <= 0) return;
       const newLeft = Math.max(0, Math.min(maxLeft, startLeft + (e.clientX - startX)));
       const ratio = newLeft / maxLeft;
-      const nodes = renderer.nodes || [];
-      if (nodes.length === 0) return;
-      let minX = Infinity, maxX = -Infinity;
-      nodes.forEach(n => {
-        if (n.x < minX) minX = n.x;
-        if (n.x + n.w > maxX) maxX = n.x + n.w;
-      });
-      const treeW = maxX - minX + 40;
+      const bounds = renderer._treeBounds;
+      if (!bounds || bounds.treeW <= 0) return;
       const vpW = canvas.clientWidth / renderer.zoom;
-      if (treeW <= vpW) return;
-      const viewRange = treeW - vpW;
-      renderer.viewX = -(minX - 20 + ratio * viewRange) * renderer.zoom;
+      if (bounds.treeW <= vpW) return;
+      const viewRange = bounds.treeW - vpW;
+      renderer.viewX = -(bounds.minX - 20 + ratio * viewRange) * renderer.zoom;
       renderer._render();
     };
     const onUp = () => { dragging = false; document.body.style.userSelect = ''; };
@@ -65,45 +59,123 @@ const HScrollbar = {
       if (maxLeft <= 0) return;
       const newLeft = Math.max(0, Math.min(maxLeft, clickX - thumbW / 2));
       const ratio = newLeft / maxLeft;
-      const nodes = renderer.nodes || [];
-      if (nodes.length === 0) return;
-      let minX = Infinity, maxX = -Infinity;
-      nodes.forEach(n => {
-        if (n.x < minX) minX = n.x;
-        if (n.x + n.w > maxX) maxX = n.x + n.w;
-      });
-      const treeW = maxX - minX + 40;
+      const bounds = renderer._treeBounds;
+      if (!bounds || bounds.treeW <= 0) return;
       const vpW = canvas.clientWidth / renderer.zoom;
-      if (treeW <= vpW) return;
-      renderer.viewX = -(minX - 20 + ratio * (treeW - vpW)) * renderer.zoom;
+      if (bounds.treeW <= vpW) return;
+      renderer.viewX = -(bounds.minX - 20 + ratio * (bounds.treeW - vpW)) * renderer.zoom;
       renderer._render();
     };
 
-    // Hook _render 同步滑轨位置（canvas 平移/缩放时自动更新滑轨）
+    // Hook _render 同步滑轨位置（用缓存的 _treeBounds 代替 O(n) 遍历）
     const origRender = renderer._render.bind(renderer);
     renderer._render = function() {
       origRender();
-      const nodes = this.nodes || [];
-      if (nodes.length === 0) { track.style.display = 'none'; return; }
-      let minX = Infinity, maxX = -Infinity;
-      nodes.forEach(n => {
-        if (n.x < minX) minX = n.x;
-        if (n.x + n.w > maxX) maxX = n.x + n.w;
-      });
-      const treeW = maxX - minX + 40;
+      const bounds = this._treeBounds;
+      if (!bounds || bounds.treeW <= 0) { track.style.display = 'none'; return; }
       const vpW = canvas.clientWidth / this.zoom;
-      if (treeW <= vpW) { track.style.display = 'none'; return; }
+      if (bounds.treeW <= vpW) { track.style.display = 'none'; return; }
       track.style.display = '';
       const viewStart = -this.viewX / this.zoom;
-      const viewEnd = viewStart + vpW;
       const trackW = track.clientWidth;
-      const thumbW = Math.max(40, Math.round((vpW / treeW) * trackW));
+      const thumbW = Math.max(40, Math.round((vpW / bounds.treeW) * trackW));
       const maxLeft = trackW - thumbW;
-      const scrollRange = treeW - vpW;
-      const scrolled = viewStart - (minX - 20);
+      const scrollRange = bounds.treeW - vpW;
+      const scrolled = viewStart - (bounds.minX - 20);
       const ratio = Math.max(0, Math.min(1, scrolled / scrollRange));
       thumb.style.width = thumbW + 'px';
       thumb.style.left = Math.round(ratio * maxLeft) + 'px';
+    };
+  },
+};
+
+/* ============================================================
+   Canvas 竖向滑轨模块
+   为 Canvas 族谱树添加右侧滚动条，控制上下平移
+   ============================================================ */
+const VScrollbar = {
+  attach(renderer, containerSelector) {
+    if (!renderer || !renderer.canvas) return;
+
+    const canvas = renderer.canvas;
+    const parent = canvas.parentElement;
+    if (!parent) return;
+
+    // 创建滑轨（若已存在则复用）
+    let track = parent.querySelector('.canvas-vscroll');
+    if (!track) {
+      track = document.createElement('div');
+      track.className = 'canvas-vscroll';
+      track.innerHTML = '<div class="canvas-vscroll-thumb"></div>';
+      parent.appendChild(track);
+    }
+    const thumb = track.querySelector('.canvas-vscroll-thumb');
+
+    // 拖拽滑轨
+    let dragging = false, startY = 0, startTop = 0;
+    thumb.onmousedown = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragging = true;
+      startY = e.clientY;
+      startTop = thumb.offsetTop;
+      document.body.style.userSelect = 'none';
+    };
+    const onMove = (e) => {
+      if (!dragging) return;
+      const trackH = track.clientHeight;
+      const thumbH = thumb.offsetHeight;
+      const maxTop = trackH - thumbH;
+      if (maxTop <= 0) return;
+      const newTop = Math.max(0, Math.min(maxTop, startTop + (e.clientY - startY)));
+      const ratio = newTop / maxTop;
+      const bounds = renderer._treeBounds;
+      if (!bounds || bounds.treeH <= 0) return;
+      const vpH = canvas.clientHeight / renderer.zoom;
+      if (bounds.treeH <= vpH) return;
+      renderer.viewY = -(bounds.minY - 20 + ratio * (bounds.treeH - vpH)) * renderer.zoom;
+      renderer._render();
+    };
+    const onUp = () => { dragging = false; document.body.style.userSelect = ''; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+
+    // 点击轨道跳转
+    track.onclick = (e) => {
+      if (e.target === thumb) return;
+      const rect = track.getBoundingClientRect();
+      const clickY = e.clientY - rect.top;
+      const thumbH = thumb.offsetHeight;
+      const maxTop = track.clientHeight - thumbH;
+      if (maxTop <= 0) return;
+      const newTop = Math.max(0, Math.min(maxTop, clickY - thumbH / 2));
+      const ratio = newTop / maxTop;
+      const bounds = renderer._treeBounds;
+      if (!bounds || bounds.treeH <= 0) return;
+      const vpH = canvas.clientHeight / renderer.zoom;
+      if (bounds.treeH <= vpH) return;
+      renderer.viewY = -(bounds.minY - 20 + ratio * (bounds.treeH - vpH)) * renderer.zoom;
+      renderer._render();
+    };
+
+    // Hook _render 同步滑轨位置（用缓存的 _treeBounds 代替 O(n) 遍历）
+    const origRender = renderer._render.bind(renderer);
+    renderer._render = function() {
+      origRender();
+      const bounds = this._treeBounds;
+      if (!bounds || bounds.treeH <= 0) { track.style.display = 'none'; return; }
+      const vpH = canvas.clientHeight / this.zoom;
+      if (bounds.treeH <= vpH) { track.style.display = 'none'; return; }
+      track.style.display = '';
+      const viewStart = -this.viewY / this.zoom;
+      const trackH = track.clientHeight;
+      const thumbH = Math.max(40, Math.round((vpH / bounds.treeH) * trackH));
+      const maxTop = trackH - thumbH;
+      const scrollRange = bounds.treeH - vpH;
+      const scrolled = viewStart - (bounds.minY - 20);
+      const ratio = Math.max(0, Math.min(1, scrolled / scrollRange));
+      thumb.style.height = thumbH + 'px';
+      thumb.style.top = Math.round(ratio * maxTop) + 'px';
     };
   },
 };
@@ -924,6 +996,7 @@ const App = {
         TreeRenderer.loadMembers(allMembers);
 
         HScrollbar.attach(TreeRenderer, '.tree-container');
+        VScrollbar.attach(TreeRenderer, '.tree-container');
 
         this._treeTargetId = targetId;
         this._treeAllMembers = allMembers;
@@ -981,6 +1054,8 @@ _openFullscreen(targetId, allMembers, sourceCanvasId, sourceContainer) {
         (member) => TreeRenderer.toggleCollapse(member.member_id)
       );
       TreeRenderer.loadMembers(allMembers);
+      HScrollbar.attach(TreeRenderer, '.tree-fullscreen-body');
+      VScrollbar.attach(TreeRenderer, '.tree-fullscreen-body');
 
       document.getElementById('fs-zoom-in').onclick = () => TreeRenderer.zoomIn();
       document.getElementById('fs-zoom-out').onclick = () => TreeRenderer.zoomOut();
@@ -1026,6 +1101,7 @@ _openFullscreen(targetId, allMembers, sourceCanvasId, sourceContainer) {
       );
       TreeRenderer.loadMembers(src.allMembers);
       HScrollbar.attach(TreeRenderer, src.container);
+      VScrollbar.attach(TreeRenderer, src.container);
     });
 
     this._fsSource = null;
@@ -1379,6 +1455,7 @@ _openFullscreen(targetId, allMembers, sourceCanvasId, sourceContainer) {
 
           // 绑定横向滑轨
           HScrollbar.attach(TreeRenderer, '.desc-canvas-container');
+          VScrollbar.attach(TreeRenderer, '.desc-canvas-container');
           } catch (err) {
             console.error('后代树渲染失败:', err);
             el.innerHTML = `<p style="text-align:center;color:#C44D4D;padding:40px">渲染后代树失败：${err.message}</p>`;

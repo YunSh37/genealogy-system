@@ -959,6 +959,39 @@ body {
   background: rgba(139, 58, 58, 0.65);
 }
 
+/* ---- 竖直滑轨（右侧）---- */
+.canvas-vscroll {
+  position: absolute;
+  top: 12px;
+  right: 6px;
+  bottom: 22px;   /* 给横向滑轨留空间 */
+  width: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 5px;
+  z-index: 10;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.canvas-vscroll:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.canvas-vscroll-thumb {
+  position: absolute;
+  width: 100%;
+  background: rgba(139, 58, 58, 0.35);
+  border-radius: 5px;
+  cursor: grab;
+  transition: background 0.15s;
+  min-height: 40px;
+}
+
+.canvas-vscroll-thumb:hover,
+.canvas-vscroll-thumb:active {
+  background: rgba(139, 58, 58, 0.65);
+}
+
 /* ==================== 亲缘关系树 ==================== */
 .rel-canvas-container {
   background: #fff;
