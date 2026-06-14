@@ -480,4 +480,65 @@ const TreeRenderer = {
     if (this._onResize)     { window.removeEventListener('resize', this._onResize); this._onResize = null; }
     this._eventsBound = false;
   },
+
+  // ---- 工厂方法：创建完全独立的渲染器实例 ----
+  // 解决 Object.create(TreeRenderer) 继承被族谱树 init() 污染的原型状态的问题
+  createInstance() {
+    const inst = {};
+
+    // 复制所有方法到实例自身（不走原型链）
+    for (const key in TreeRenderer) {
+      if (typeof TreeRenderer[key] === 'function') {
+        inst[key] = TreeRenderer[key];
+      }
+    }
+
+    // 初始化所有状态为默认值（完全独立于 TreeRenderer 原型）
+    inst.NODE_W = 120;
+    inst.NODE_H = 40;
+    inst.H_GAP = 24;
+    inst.V_GAP = 60;
+    inst.NODE_RADIUS = 8;
+    inst.canvas = null;
+    inst.ctx = null;
+    inst.dpr = 1;
+    inst.nodes = [];
+    inst.nodeMap = {};
+    inst.roots = [];
+    inst.viewX = 0;
+    inst.viewY = 0;
+    inst.zoom = 1.0;
+    inst.minZoom = 0.02;
+    inst.maxZoom = 3.0;
+    inst.dragging = false;
+    inst.dragStartX = 0;
+    inst.dragStartY = 0;
+    inst.dragViewX = 0;
+    inst.dragViewY = 0;
+    inst.selectedNode = null;
+    inst.hoveredNode = null;
+    inst.onNodeClick = null;
+    inst._eventsBound = false;
+    inst._onWheel = null;
+    inst._onMouseDown = null;
+    inst._onMouseMove = null;
+    inst._onMouseUp = null;
+    inst._onTouchStart = null;
+    inst._onTouchMove = null;
+    inst._onTouchEnd = null;
+    inst._onResize = null;
+
+    // 颜色配置
+    inst.colorMale = '#5B8DB8';
+    inst.colorMaleFill = '#EDF4FA';
+    inst.colorFemale = '#D4828A';
+    inst.colorFemaleFill = '#FDF0F2';
+    inst.colorSpouse = '#9B7FB8';
+    inst.colorLine = '#C4B8A8';
+    inst.colorSelected = '#D4A574';
+    inst.colorText = '#2C2C2C';
+    inst.colorTextLight = '#888';
+
+    return inst;
+  },
 };

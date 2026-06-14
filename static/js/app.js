@@ -1078,24 +1078,50 @@ const App = {
         return;
       }
 
-      // 过滤：同辈分存在两人时只保留男性
-      const byGen = {};
-      raw.forEach(a => {
-        const gen = a.generation ?? 0;
-        if (!byGen[gen]) byGen[gen] = [];
-        byGen[gen].push(a);
-      });
-      const filtered = [];
-      Object.keys(byGen).sort((a, b) => +a - +b).forEach(gen => {
-        const group = byGen[gen];
-        const male = group.find(a => a.gender === 'male');
-        filtered.push(male || group[0]);
-      });
+      // 构建祖先路径：从目标成员沿 father_id/mother_id 逐级向上追踪
+      const ancMap = {};
+      raw.forEach(a => { ancMap[a.member_id] = a; });
 
-      // 从远到近排序（generation 小的先出现）
-      filtered.sort((a, b) => (a.generation || 0) - (b.generation || 0));
+      // 从目标成员的父辈开始，沿亲子链向上
+      const path = []; // 从近到远（target 的父/母 → 最远祖先）
+      let current = target;
+      const visited = new Set();
+
+      while (current) {
+        const fatherId = current.father_id;
+        const motherId = current.mother_id;
+        const father = fatherId ? ancMap[fatherId] : null;
+        const mother = motherId ? ancMap[motherId] : null;
+
+        if (father && mother) {
+          // 父母都在祖先集合中，同辈只保留男性（父亲）
+          if (!visited.has(father.member_id)) {
+            path.push(father);
+            visited.add(father.member_id);
+          }
+          current = father;
+        } else if (father) {
+          if (!visited.has(father.member_id)) {
+            path.push(father);
+            visited.add(father.member_id);
+          }
+          current = father;
+        } else if (mother) {
+          if (!visited.has(mother.member_id)) {
+            path.push(mother);
+            visited.add(mother.member_id);
+          }
+          current = mother;
+        } else {
+          break; // 链路到达尽头（祖先的父辈不在集合中）
+        }
+      }
+
+      // 反转为从远到近（最远祖先 → 最近父/母）
+      path.reverse();
 
       // 把目标人物追加到路径末端
+      const filtered = [...path];
       if (target.member_id) {
         filtered.push(target);
       }
@@ -1194,24 +1220,12 @@ const App = {
         </div>`;
 
       // 销毁旧的渲染器实例（移除其 window 事件监听器，防止泄漏和冲突）
-      if (this._descRenderer) {
+      if (this._descRenderer && this._descRenderer.destroy) {
         this._descRenderer.destroy();
       }
 
-      // 每次创建新的渲染器实例（旧 canvas 已被 innerHTML 销毁，需要全新绑定）
-      this._descRenderer = Object.create(TreeRenderer);
-      this._descRenderer.canvas = null;
-      this._descRenderer.ctx = null;
-      this._descRenderer.nodes = [];
-      this._descRenderer.nodeMap = {};
-      this._descRenderer.roots = [];
-      this._descRenderer.viewX = 0;
-      this._descRenderer.viewY = 0;
-      this._descRenderer.zoom = 1.0;
-      this._descRenderer.dragging = false;
-      this._descRenderer.selectedNode = null;
-      this._descRenderer.hoveredNode = null;
-      this._descRenderer._eventsBound = false;  // 重置事件绑定标记（原型链上为 true）
+      // 使用工厂方法创建完全独立的渲染器实例（不走原型链，避免状态污染）
+      this._descRenderer = TreeRenderer.createInstance();
 
       // 等一帧确保 canvas 在 DOM 中完成布局
       requestAnimationFrame(() => {

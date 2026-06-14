@@ -206,7 +206,9 @@
         "summary": "获取族谱列表",
         "deprecated": false,
         "description": "获取用户创建和受邀请的族谱列表（包括共享的族谱）",
-        "tags": ["族谱管理"],
+        "tags": [
+          "族谱管理"
+        ],
         "parameters": [],
         "responses": {
           "200": {
@@ -322,7 +324,9 @@
         "summary": "获取族谱详情",
         "deprecated": false,
         "description": "获取指定族谱的详细信息，如果用户是创建者或受邀请用户",
-        "tags": ["族谱管理"],
+        "tags": [
+          "族谱管理"
+        ],
         "parameters": [
           {
             "name": "genealogy_id",
@@ -1018,7 +1022,7 @@
       "get": {
         "summary": "获取家族树",
         "deprecated": false,
-        "description": "获取指定成员的家族树（包含祖先、后代和配偶）",
+        "description": "获取指定成员的完整族谱树：向上追溯祖先到根节点（线性路径，优先父系），向下展开后代树到指定深度",
         "tags": [
           "血缘查询"
         ],
@@ -1036,13 +1040,13 @@
           {
             "name": "depth",
             "in": "query",
-            "description": "树深度",
+            "description": "后代树深度（仅控制向下遍历深度，向上追溯到根节点不受限制）",
             "required": false,
             "schema": {
               "type": "integer",
-              "default": 3,
+              "default": 5,
               "minimum": 1,
-              "maximum": 5
+              "maximum": 20
             }
           }
         ],
@@ -1065,7 +1069,32 @@
                     "data": {
                       "type": "object",
                       "properties": {
-                        "root": {
+                        "depth": {
+                          "type": "integer"
+                        },
+                        "ancestors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {}
+                          },
+                          "description": "祖先路径（从根节点到目标成员的父/母，线性链，优先父系）"
+                        },
+                        "descendants": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {}
+                          },
+                          "description": "后代树（受 depth 参数控制）"
+                        },
+                        "total_ancestors": {
+                          "type": "integer"
+                        },
+                        "total_descendants": {
+                          "type": "integer"
+                        },
+                        "target_member": {
                           "type": "object",
                           "properties": {
                             "member_id": {
@@ -1079,30 +1108,8 @@
                               "description": "配偶信息（如果有）",
                               "properties": {}
                             }
-                          }
-                        },
-                        "depth": {
-                          "type": "integer"
-                        },
-                        "ancestors": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {}
-                          }
-                        },
-                        "descendants": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {}
-                          }
-                        },
-                        "total_ancestors": {
-                          "type": "integer"
-                        },
-                        "total_descendants": {
-                          "type": "integer"
+                          },
+                          "description": "目标成员信息"
                         }
                       }
                     }
