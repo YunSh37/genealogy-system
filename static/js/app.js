@@ -494,6 +494,9 @@ const App = {
     document.getElementById('tree-depth').addEventListener('keydown', e => {
       if (e.key === 'Enter') this._loadFamilyTree();
     });
+    document.getElementById('tree-member-id').addEventListener('keydown', e => {
+      if (e.key === 'Enter') this._loadFamilyTree();
+    });
 
     // 成员管理
     document.getElementById('btn-member-search').addEventListener('click', () => this._searchMembers());
@@ -797,37 +800,47 @@ const App = {
     if (!this.currentGenealogyId) return;
     const container = document.querySelector('.tree-container');
     const depth = parseInt(document.getElementById('tree-depth')?.value) || 5;
+    const inputMemberId = parseInt(document.getElementById('tree-member-id')?.value) || 0;
     try {
-      // 第一步：获取少量成员，找到辈分最小的男性作为先祖
-      const membersData = await API.getMembers(this.currentGenealogyId, 1, 200);
-      const members = membersData.members || [];
-      if (members.length === 0) {
-        container.innerHTML = '<p style="text-align:center;color:#999;padding:60px">暂无成员数据，请先添加成员</p>';
-        return;
-      }
-      // 找辈分最小的男性（generation 最小），找不到男性则取任意最小辈分成员
-      let ancestor = null;
-      let minGen = Infinity;
-      members.forEach(m => {
-        const gen = m.generation ?? 1;
-        if (gen < minGen) {
-          minGen = gen;
-          ancestor = m;
-        } else if (gen === minGen && ancestor && m.gender === 'male' && ancestor.gender !== 'male') {
-          ancestor = m;
+      let ancestorId;
+
+      if (inputMemberId) {
+        // 用户指定了成员 ID，直接使用
+        ancestorId = inputMemberId;
+      } else {
+        // 未指定时自动查找辈分最小的男性（先祖）
+        const membersData = await API.getAllMembers(this.currentGenealogyId);
+        const members = membersData.members || [];
+        if (members.length === 0) {
+          container.innerHTML = '<p style="text-align:center;color:#999;padding:60px">暂无成员数据，请先添加成员</p>';
+          return;
         }
-      });
+        let ancestor = null;
+        let minGen = Infinity;
+        members.forEach(m => {
+          const gen = m.generation ?? 1;
+          if (gen < minGen) {
+            minGen = gen;
+            ancestor = m;
+          } else if (gen === minGen && ancestor && m.gender === 'male' && ancestor.gender !== 'male') {
+            ancestor = m;
+          }
+        });
+        if (!ancestor) {
+          container.innerHTML = '<p style="text-align:center;color:#999;padding:60px">未找到可用成员</p>';
+          return;
+        }
+        ancestorId = ancestor.member_id;
+      }
 
-      // 第二步：以先祖为根，按指定深度加载族谱树
-      const treeData = await API.getFamilyTree(ancestor.member_id, depth);
+      // 以指定成员为中心，按深度加载族谱树
+      const treeData = await API.getFamilyTree(ancestorId, depth);
 
-      // 拼接所有成员：兼容新旧两种响应格式
-      // 新格式: { target_member, ancestors[], descendants[] }
-      // 旧格式: { members[] } 或 { descendants[] }
+      // 拼接所有成员：ancestors（祖先路径）+ target_member + descendants（后代树）
       const seenIds = new Set();
       const allMembers = [];
 
-      // 添加祖先路径（新格式）
+      // 添加祖先路径（从根节点到目标成员的父/母）
       (treeData.ancestors || []).forEach(a => {
         if (a.member_id && !seenIds.has(a.member_id)) {
           allMembers.push(a);
@@ -835,7 +848,7 @@ const App = {
         }
       });
 
-      // 添加目标成员（新格式）
+      // 添加目标成员
       const target = treeData.target_member;
       if (target && target.member_id && !seenIds.has(target.member_id)) {
         allMembers.push(target);
@@ -843,18 +856,12 @@ const App = {
       }
 
       // 添加后代树
-      const descendants = treeData.descendants || treeData.members || [];
-      descendants.forEach(d => {
+      (treeData.descendants || []).forEach(d => {
         if (d.member_id && !seenIds.has(d.member_id)) {
           allMembers.push(d);
           seenIds.add(d.member_id);
         }
       });
-
-      // 兜底：如果新格式字段都没有，用祖先对象本身
-      if (allMembers.length === 0 && ancestor.member_id) {
-        allMembers.push(ancestor);
-      }
 
       if (allMembers.length === 0) {
         container.innerHTML = '<p style="text-align:center;color:#999;padding:60px">暂无族谱树数据</p>';
