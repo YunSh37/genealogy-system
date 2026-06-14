@@ -565,6 +565,7 @@ const App = {
     document.getElementById('tree-fit').addEventListener('click', () => TreeRenderer.fitView());
     document.getElementById('tree-reset').addEventListener('click', () => TreeRenderer.resetView());
     document.getElementById('tree-expand-all').addEventListener('click', () => TreeRenderer.expandAllNodes());
+    document.getElementById('tree-collapse-all').addEventListener('click', () => TreeRenderer.collapseAllNodes());
     document.getElementById('tree-fullscreen').addEventListener('click', () => this._openFullscreen());
     document.getElementById('tree-load').addEventListener('click', () => this._loadFamilyTree(true));
     document.getElementById('tree-depth').addEventListener('keydown', e => {
@@ -1062,6 +1063,7 @@ _openFullscreen(targetId, allMembers, sourceCanvasId, sourceContainer) {
       document.getElementById('fs-fit').onclick = () => TreeRenderer.fitView();
       document.getElementById('fs-reset').onclick = () => TreeRenderer.resetView();
       document.getElementById('fs-expand-all').onclick = () => TreeRenderer.expandAllNodes();
+      document.getElementById('fs-collapse-all').onclick = () => TreeRenderer.collapseAllNodes();
       document.getElementById('fs-close').onclick = () => this._closeFullscreen();
 
       this._fsEscHandler = (e) => {
@@ -1421,6 +1423,7 @@ _openFullscreen(targetId, allMembers, sourceCanvasId, sourceContainer) {
           <button class="btn btn-sm desc-fit">适应</button>
           <button class="btn btn-sm desc-reset">重置</button>
           <button class="btn btn-sm desc-expand-all" title="一键展开全部">📖</button>
+          <button class="btn btn-sm desc-collapse-all" title="一键折叠到第8代">📕</button>
           <button class="btn btn-sm desc-fullscreen" title="全屏展开">⛶</button>
         </div>
         <div class="desc-canvas-container">
@@ -1450,6 +1453,7 @@ _openFullscreen(targetId, allMembers, sourceCanvasId, sourceContainer) {
           el.querySelector('.desc-fit')?.addEventListener('click', () => TreeRenderer.fitView());
           el.querySelector('.desc-reset')?.addEventListener('click', () => TreeRenderer.resetView());
           el.querySelector('.desc-expand-all')?.addEventListener('click', () => TreeRenderer.expandAllNodes());
+          el.querySelector('.desc-collapse-all')?.addEventListener('click', () => TreeRenderer.collapseAllNodes());
           el.querySelector('.desc-fullscreen')?.addEventListener('click',
             () => this._openFullscreen(memberId, allMembers, 'desc-canvas', '.desc-canvas-container'));
 

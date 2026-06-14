@@ -327,6 +327,25 @@ const TreeRenderer = {
     this._render();
   },
 
+  // 一键折叠：先展开全部，再执行默认折叠（深度 >= AUTO_COLLAPSE_DEPTH 折叠）
+  collapseAllNodes() {
+    // 先全部展开
+    const visited = new Set();
+    const uncollapse = (node) => {
+      if (visited.has(node.id)) return;
+      visited.add(node.id);
+      node.collapsed = false;
+      node.children.forEach(c => uncollapse(c));
+    };
+    this.roots.forEach(r => uncollapse(r));
+    Object.values(this.nodeMap).forEach(n => {
+      if (n.children.length > 0) n.collapsed = false;
+    });
+    // 再执行默认折叠（与首次加载一致）
+    this._autoCollapse();
+    this._render();
+  },
+
   // ---- 计算某节点及所有后代 ID（用于折叠统计）----
   _countDescendants(node, visited = new Set()) {
     if (visited.has(node.id)) return 0;
